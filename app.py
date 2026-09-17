@@ -2,9 +2,11 @@ import sys
 import asyncio
 import requests
 import json
+import time
 import streamlit as st
 import pandas as pd
 
+# Konfigurasi Event Loop untuk Windows
 if sys.platform == 'win32':
     try:
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -18,10 +20,14 @@ PASSWORD_GURU = "Guru123!"
 # ID Google Sheet milikmu
 SHEET_ID = "1BTUS3nbirH2sU_j6u2YLZDTykYyULMYXNsE30mkhiAo"
 
-# Fungsi Membaca Data
+# ===================================================================
+# FUNGSI MEMBACA DATA DARI GOOGLE SHEETS (REAL-TIME / BEBAS CACHE)
+# ===================================================================
 def muat_data_sheet(nama_tab):
     try:
-        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={nama_tab}"
+        # Timestamp ditambahkan agar Streamlit tidak mengambil data cache lama
+        timestamp = int(time.time())
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={nama_tab}&_t={timestamp}"
         df = pd.read_csv(url)
         return df
     except Exception:
@@ -35,7 +41,9 @@ def muat_semua_data():
 
 df_siswa, df_tugas, df_pengumpulan = muat_semua_data()
 
-# Fungsi Kirim Data via Google Apps Script Web App
+# ===================================================================
+# FUNGSI KIRIM DATA KE GOOGLE APPS SCRIPT
+# ===================================================================
 def kirim_data_ke_sheet(action, payload):
     try:
         url = st.secrets["WEBAPP_URL"]
@@ -59,7 +67,9 @@ def dapatkan_tingkat_kelas(nama_kelas: str) -> str:
         return "Kelas X"
     return "Lainnya"
 
-# Navigasi Sidebar
+# ===================================================================
+# NAVIGASI SIDEBAR
+# ===================================================================
 st.sidebar.title("📌 Navigasi Portal")
 role = st.sidebar.selectbox("Login Sebagai:", ["Siswa", "Guru"], key="main_role_select")
 
@@ -152,7 +162,9 @@ elif role == "Guru":
             "👤 Kelola Data Siswa"
         ], key="radio_menu_guru")
 
-        # --- REKAPITULASI & PENILAIAN ---
+        # ---------------------------------------------------------------
+        # MENU 1: REKAPITULASI & PENILAIAN
+        # ---------------------------------------------------------------
         if menu_guru == "📊 Rekapitulasi & Penilaian":
             st.header("📊 Rekapitulasi & Penilaian Tugas")
 
@@ -220,7 +232,9 @@ elif role == "Guru":
                                     st.success(f"Nilai {skor} disimpan!")
                                     st.rerun()
 
-        # --- KELOLA TUGAS PER TINGKAT ---
+        # ---------------------------------------------------------------
+        # MENU 2: KELOLA TUGAS PER TINGKAT (TAMBAH, EDIT, HAPUS)
+        # ---------------------------------------------------------------
         elif menu_guru == "⚙️ Kelola Tugas Per Tingkat":
             st.header("⚙️ Buat & Kelola Tugas Berdasarkan Tingkat Kelas")
 
@@ -275,7 +289,9 @@ elif role == "Guru":
                 else:
                     st.info("Belum ada data tugas untuk dihapus.")
 
-        # --- KELOLA DATA SISWA ---
+        # ---------------------------------------------------------------
+        # MENU 3: KELOLA DATA SISWA (UPLOAD, TAMBAH, EDIT, HAPUS)
+        # ---------------------------------------------------------------
         elif menu_guru == "👤 Kelola Data Siswa":
             st.header("👤 Kelola Data Siswa")
 
