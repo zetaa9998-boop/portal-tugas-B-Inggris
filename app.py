@@ -38,7 +38,6 @@ def muat_semua_data_gas():
             if len(raw_pengumpulan) > 1:
                 cols = raw_pengumpulan[0]
                 df_p = pd.DataFrame(raw_pengumpulan[1:], columns=cols).astype(str)
-                # Pastikan kolom Link File ada (Kolom ke-5 jika belum ada di header sheet)
                 if len(cols) < 5:
                     df_p["Link File"] = ""
             else:
@@ -88,7 +87,7 @@ if st.sidebar.button("🔄 Segarkan Data", use_container_width=True):
 role = st.sidebar.selectbox("Login Sebagai:", ["Siswa", "Guru"], key="main_role_select")
 
 # ===================================================================
-# PORTAL SISWA
+# PORTAL SISWA (Nilai Disembunyikan)
 # ===================================================================
 if role == "Siswa":
     st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas")
@@ -135,9 +134,9 @@ if role == "Siswa":
                         nilai_saat_ini = 0.0
 
                     if status_saat_ini == "Sudah Mengumpulkan":
-                        st.success(f"✅ Status: **{status_saat_ini}** | Nilai: **{nilai_saat_ini}**")
+                        st.success(f"✅ Status Pengumpulan: **{status_saat_ini}**")
                     else:
-                        st.warning(f"⏳ Status: **{status_saat_ini}**")
+                        st.warning(f"⏳ Status Pengumpulan: **{status_saat_ini}**")
 
                     with st.form("form_upload_siswa"):
                         file_tugas = st.file_uploader("Pilih Berkas Tugas (PDF/Gambar/Docx):", type=["pdf", "png", "jpg", "docx"])
@@ -166,7 +165,7 @@ if role == "Siswa":
                                 st.error("Silakan pilih berkas terlebih dahulu.")
 
 # ===================================================================
-# PORTAL GURU
+# PORTAL GURU (Nilai Tetap Terlihat & Dapat Dikelola)
 # ===================================================================
 elif role == "Guru":
     st.title("👨‍🏫 Portal Guru - Pengelolaan & Penilaian")
@@ -232,7 +231,7 @@ elif role == "Guru":
                     if "Link File" not in df_rekap.columns:
                         df_rekap["Link File"] = ""
 
-                    # Tampilkan tabel rekapitulasi interaktif
+                    # Guru tetap melihat nilai dan link file secara lengkap
                     st.dataframe(
                         df_rekap[["NIS", "Nama Siswa", "Kelas", "Status", "Nilai", "Link File"]],
                         use_container_width=True,
