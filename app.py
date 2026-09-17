@@ -8,7 +8,7 @@ st.title("🔍 Diagnosis Data Google Sheets")
 SHEET_ID = "1BTUS3nbirH2sU_j6u2YLZDTykYyULMYXNsE30mkhiAo"
 
 timestamp = int(time.time())
-url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Siswa&_t={timestamp}"
+url = f"https://docs.google.com/spreadsheets/d/1BTUS3nbirH2sU_j6u2YLZDTykYyULMYXNsE3OmkhiAo/edit?gid=0#gid=0"
 
 try:
     df_siswa = pd.read_csv(url, dtype=str)
