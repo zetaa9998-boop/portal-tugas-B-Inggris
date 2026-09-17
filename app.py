@@ -4,7 +4,6 @@ import requests
 import json
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
 
 if sys.platform == 'win32':
     try:
@@ -16,22 +15,27 @@ st.set_page_config(page_title="Aplikasi Pengumpul Tugas SMK", layout="wide")
 
 PASSWORD_GURU = "Guru123!"
 
-# Koneksi untuk MENGAMBIL data dari Google Sheet
-conn = st.connection("gsheets", type=GSheetsConnection)
+# ID Google Sheet milikmu (diambil dari URL sheet)
+SHEET_ID = "1BTUS3nbirH2sU_j6u2YLZDTykYyULMYXNsE30mkhiAo"
 
-def muat_data():
+# Fungsi Membaca Data Langsung lewat Ekspor CSV Google Sheets (Bebas Error 404)
+def muat_data_sheet(nama_tab):
     try:
-        df_siswa = conn.read(worksheet="Siswa", ttl="0s")
-        df_tugas = conn.read(worksheet="Tugas", ttl="0s")
-        df_pengumpulan = conn.read(worksheet="Pengumpulan", ttl="0s")
-        return df_siswa, df_tugas, df_pengumpulan
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={nama_tab}"
+        df = pd.read_csv(url)
+        return df
     except Exception as e:
-        st.error(f"Gagal membaca dari Google Sheets: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame()
 
-df_siswa, df_tugas, df_pengumpulan = muat_data()
+def muat_semua_data():
+    df_siswa = muat_data_sheet("Siswa")
+    df_tugas = muat_data_sheet("Tugas")
+    df_pengumpulan = muat_data_sheet("Pengumpulan")
+    return df_siswa, df_tugas, df_pengumpulan
 
-# Fungsi Kirim Data ke Google Sheet via Web App
+df_siswa, df_tugas, df_pengumpulan = muat_semua_data()
+
+# Fungsi Kirim Data via Google Apps Script Web App
 def kirim_data_ke_sheet(action, payload):
     try:
         url = st.secrets["WEBAPP_URL"]
@@ -39,7 +43,7 @@ def kirim_data_ke_sheet(action, payload):
         if response.status_code == 200:
             return True
         else:
-            st.error(f"Gagal menyimpan! Status Kode HTTP: {response.status_code}. Respon: {response.text}")
+            st.error(f"Gagal menyimpan! Response: {response.text}")
             return False
     except Exception as e:
         st.error(f"Gagal menghubungkan ke Apps Script: {e}")
@@ -65,8 +69,8 @@ role = st.sidebar.selectbox("Login Sebagai:", ["Siswa", "Guru"], key="main_role_
 if role == "Siswa":
     st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas")
     
-    if df_siswa.empty:
-        st.warning("Data siswa belum tersedia di Google Sheets.")
+    if df_siswa.empty or "Kelas" not in df_siswa.columns:
+        st.warning("Data siswa belum tersedia atau Google Sheets belum diisi header (NIS, Nama Siswa, Kelas).")
     else:
         list_kelas = sorted(list(df_siswa["Kelas"].dropna().astype(str).unique()))
         kelas_siswa = st.selectbox("Pilih Kelas Anda:", list_kelas, key="siswa_pilih_kelas")
@@ -81,7 +85,9 @@ if role == "Siswa":
             siswa_terpilih = st.selectbox("Pilih Nama Anda:", list_siswa, key="siswa_pilih_nama")
             nis_siswa = str(df_siswa_kelas[df_siswa_kelas["Nama Siswa"] == siswa_terpilih]["NIS"].values[0])
 
-            tugas_tingkat = df_tugas[df_tugas["Tingkat"] == tingkat_siswa]["Nama Tugas"].dropna().tolist() if not df_tugas.empty else []
+            tugas_tingkat = []
+            if not df_tugas.empty and "Tingkat" in df_tugas.columns:
+                tugas_tingkat = df_tugas[df_tugas["Tingkat"] == tingkat_siswa]["Nama Tugas"].dropna().tolist()
 
             st.markdown("---")
             if not tugas_tingkat:
@@ -89,8 +95,10 @@ if role == "Siswa":
             else:
                 tugas_terpilih = st.selectbox("Pilih Tugas yang Ingin Dikumpulkan:", tugas_tingkat, key="siswa_pilih_tugas")
 
-                # Cek Status
-                q_status = df_pengumpulan[(df_pengumpulan["NIS"].astype(str) == nis_siswa) & (df_pengumpulan["Nama Tugas"] == tugas_terpilih)] if not df_pengumpulan.empty else pd.DataFrame()
+                # Cek Status Pengumpulan
+                q_status = pd.DataFrame()
+                if not df_pengumpulan.empty and "NIS" in df_pengumpulan.columns:
+                    q_status = df_pengumpulan[(df_pengumpulan["NIS"].astype(str) == nis_siswa) & (df_pengumpulan["Nama Tugas"] == tugas_terpilih)]
                 
                 if not q_status.empty:
                     status_saat_ini = str(q_status["Status"].values[0])
@@ -150,7 +158,9 @@ elif role == "Guru":
 
             tingkat_pilihan = st.selectbox("Pilih Tingkat Kelas:", ["Kelas X", "Kelas XI", "Kelas XII"], key="guru_select_tingkat_rekap")
 
-            tugas_tersedia = df_tugas[df_tugas["Tingkat"] == tingkat_pilihan]["Nama Tugas"].dropna().tolist() if not df_tugas.empty else []
+            tugas_tersedia = []
+            if not df_tugas.empty and "Tingkat" in df_tugas.columns:
+                tugas_tersedia = df_tugas[df_tugas["Tingkat"] == tingkat_pilihan]["Nama Tugas"].dropna().tolist()
 
             if not tugas_tersedia:
                 st.warning(f"Belum ada tugas yang dibuat untuk **{tingkat_pilihan}**.")
@@ -164,7 +174,7 @@ elif role == "Guru":
                     filter_kelas = st.selectbox("Filter Rombel/Kelas:", ["Semua Rombel"] + sorted(kelas_in_tingkat), key="guru_filter_rombel_rekap")
 
                 df_siswa_tingkat = df_siswa.copy()
-                if not df_siswa_tingkat.empty:
+                if not df_siswa_tingkat.empty and "Kelas" in df_siswa_tingkat.columns:
                     df_siswa_tingkat["NIS"] = df_siswa_tingkat["NIS"].astype(str)
                     df_siswa_tingkat["Tingkat"] = df_siswa_tingkat["Kelas"].apply(dapatkan_tingkat_kelas)
                     df_siswa_tingkat = df_siswa_tingkat[df_siswa_tingkat["Tingkat"] == tingkat_pilihan]
@@ -172,9 +182,11 @@ elif role == "Guru":
                     if filter_kelas != "Semua Rombel":
                         df_siswa_tingkat = df_siswa_tingkat[df_siswa_tingkat["Kelas"].astype(str) == str(filter_kelas)]
 
-                    df_p_sub = df_pengumpulan[df_pengumpulan["Nama Tugas"] == tugas_pilihan].copy() if not df_pengumpulan.empty else pd.DataFrame(columns=["NIS", "Nama Tugas", "Status", "Nilai"])
-                    if not df_p_sub.empty:
-                        df_p_sub["NIS"] = df_p_sub["NIS"].astype(str)
+                    df_p_sub = pd.DataFrame(columns=["NIS", "Nama Tugas", "Status", "Nilai"])
+                    if not df_pengumpulan.empty and "Nama Tugas" in df_pengumpulan.columns:
+                        df_p_sub = df_pengumpulan[df_pengumpulan["Nama Tugas"] == tugas_pilihan].copy()
+                        if not df_p_sub.empty:
+                            df_p_sub["NIS"] = df_p_sub["NIS"].astype(str)
 
                     df_rekap = pd.merge(df_siswa_tingkat, df_p_sub, on="NIS", how="left")
                     df_rekap["Status"] = df_rekap["Status"].fillna("Belum Mengumpulkan")
