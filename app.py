@@ -2,6 +2,7 @@ import sys
 import asyncio
 import requests
 import json
+import base64
 import time
 import streamlit as st
 import pandas as pd
@@ -17,7 +18,7 @@ st.set_page_config(page_title="Aplikasi Pengumpul Tugas SMK", layout="wide")
 PASSWORD_GURU = "Guru123!"
 
 # ===================================================================
-# FUNGSI MEMBACA DATA LANGSUNG DARI GOOGLE APPS SCRIPT WEB APP
+# FUNGSI MEMBACA DATA DARI GOOGLE APPS SCRIPT
 # ===================================================================
 @st.cache_data(ttl=2)
 def muat_semua_data_gas():
@@ -27,39 +28,32 @@ def muat_semua_data_gas():
         if resp.status_code == 200:
             data_json = resp.json()
             
-            # Format Data Siswa
             raw_siswa = data_json.get("siswa", [])
-            if len(raw_siswa) > 1:
-                df_siswa = pd.DataFrame(raw_siswa[1:], columns=raw_siswa[0]).astype(str)
-            else:
-                df_siswa = pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
+            df_siswa = pd.DataFrame(raw_siswa[1:], columns=raw_siswa[0]).astype(str) if len(raw_siswa) > 1 else pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
                 
-            # Format Data Tugas
             raw_tugas = data_json.get("tugas", [])
-            if len(raw_tugas) > 1:
-                df_tugas = pd.DataFrame(raw_tugas[1:], columns=raw_tugas[0]).astype(str)
-            else:
-                df_tugas = pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
+            df_tugas = pd.DataFrame(raw_tugas[1:], columns=raw_tugas[0]).astype(str) if len(raw_tugas) > 1 else pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
                 
-            # Format Data Pengumpulan
             raw_pengumpulan = data_json.get("pengumpulan", [])
             if len(raw_pengumpulan) > 1:
-                df_pengumpulan = pd.DataFrame(raw_pengumpulan[1:], columns=raw_pengumpulan[0]).astype(str)
+                cols = raw_pengumpulan[0]
+                df_p = pd.DataFrame(raw_pengumpulan[1:], columns=cols).astype(str)
+                # Pastikan kolom Link File ada (Kolom ke-5 jika belum ada di header sheet)
+                if len(cols) < 5:
+                    df_p["Link File"] = ""
             else:
-                df_pengumpulan = pd.DataFrame(columns=["NIS", "Nama Tugas", "Status", "Nilai"])
+                df_p = pd.DataFrame(columns=["NIS", "Nama Tugas", "Status", "Nilai", "Link File"])
                 
-            return df_siswa.fillna(""), df_tugas.fillna(""), df_pengumpulan.fillna("")
+            return df_siswa.fillna(""), df_tugas.fillna(""), df_p.fillna("")
         else:
-            st.error(f"Gagal memuat data dari Web App. Kode status: {resp.status_code}")
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error koneksi ke Apps Script: {e}")
+    except Exception:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 def kirim_data_ke_sheet(action, payload):
     try:
         url = st.secrets["WEBAPP_URL"]
-        response = requests.post(url, data=json.dumps({"action": action, "payload": payload}), timeout=15)
+        response = requests.post(url, data=json.dumps({"action": action, "payload": payload}), timeout=30)
         if response.status_code == 200:
             st.cache_data.clear()
             return True
@@ -70,7 +64,6 @@ def kirim_data_ke_sheet(action, payload):
         st.error(f"Gagal menghubungkan ke Apps Script: {e}")
         return False
 
-# Muat data utama
 df_siswa, df_tugas, df_pengumpulan = muat_semua_data_gas()
 
 def dapatkan_tingkat_kelas(nama_kelas: str) -> str:
@@ -101,7 +94,7 @@ if role == "Siswa":
     st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas")
     
     if df_siswa.empty:
-        st.warning("Data siswa belum tersedia atau Google Sheets kosong.")
+        st.warning("Data siswa belum tersedia di Google Sheets.")
     else:
         list_kelas = sorted([k for k in df_siswa["Kelas"].unique() if str(k).strip() != ""])
         
@@ -131,12 +124,12 @@ if role == "Siswa":
                     tugas_terpilih = st.selectbox("Pilih Tugas yang Ingin Dikumpulkan:", tugas_tingkat, key="siswa_pilih_tugas")
 
                     q_status = pd.DataFrame()
-                    if not df_pengumpulan.empty:
+                    if not df_pengumpulan.empty and len(df_pengumpulan.columns) >= 2:
                         q_status = df_pengumpulan[(df_pengumpulan["NIS"] == nis_siswa) & (df_pengumpulan["Nama Tugas"] == tugas_terpilih)]
                     
                     if not q_status.empty:
-                        status_saat_ini = str(q_status["Status"].values[0])
-                        nilai_saat_ini = q_status["Nilai"].values[0]
+                        status_saat_ini = str(q_status["Status"].values[0]) if "Status" in q_status.columns else "Belum Mengumpulkan"
+                        nilai_saat_ini = q_status["Nilai"].values[0] if "Nilai" in q_status.columns else 0.0
                     else:
                         status_saat_ini = "Belum Mengumpulkan"
                         nilai_saat_ini = 0.0
@@ -152,16 +145,23 @@ if role == "Siswa":
 
                         if submit_button:
                             if file_tugas is not None:
+                                file_bytes = file_tugas.read()
+                                file_base64 = base64.b64encode(file_bytes).decode('utf-8')
+                                
                                 payload = {
                                     "nis": nis_siswa,
                                     "tugas": tugas_terpilih,
                                     "status": "Sudah Mengumpulkan",
-                                    "nilai": nilai_saat_ini
+                                    "nilai": nilai_saat_ini,
+                                    "file_data": file_base64,
+                                    "file_name": file_tugas.name,
+                                    "file_mime": file_tugas.type
                                 }
-                                if kirim_data_ke_sheet("simpan_pengumpulan", payload):
-                                    st.success(f"Berkas **'{file_tugas.name}'** berhasil dikirim!")
-                                    time.sleep(1)
-                                    st.rerun()
+                                with st.spinner("Mengunggah berkas ke Google Drive..."):
+                                    if kirim_data_ke_sheet("simpan_pengumpulan", payload):
+                                        st.success(f"Berkas **'{file_tugas.name}'** berhasil dikirim & disimpan!")
+                                        time.sleep(1)
+                                        st.rerun()
                             else:
                                 st.error("Silakan pilih berkas terlebih dahulu.")
 
@@ -216,7 +216,7 @@ elif role == "Guru":
                         df_siswa_tingkat = df_siswa_tingkat[df_siswa_tingkat["Kelas"] == str(filter_kelas)]
 
                     df_p_sub = pd.DataFrame()
-                    if not df_pengumpulan.empty:
+                    if not df_pengumpulan.empty and "Nama Tugas" in df_pengumpulan.columns:
                         df_p_sub = df_pengumpulan[df_pengumpulan["Nama Tugas"] == tugas_pilihan].copy()
 
                     if not df_p_sub.empty:
@@ -225,11 +225,21 @@ elif role == "Guru":
                         df_rekap = df_siswa_tingkat.copy()
                         df_rekap["Status"] = "Belum Mengumpulkan"
                         df_rekap["Nilai"] = "0.0"
+                        df_rekap["Link File"] = ""
 
                     df_rekap["Status"] = df_rekap["Status"].fillna("Belum Mengumpulkan")
                     df_rekap["Nilai"] = df_rekap["Nilai"].fillna("0.0")
+                    if "Link File" not in df_rekap.columns:
+                        df_rekap["Link File"] = ""
 
-                    st.dataframe(df_rekap[["NIS", "Nama Siswa", "Kelas", "Status", "Nilai"]], use_container_width=True)
+                    # Tampilkan tabel rekapitulasi interaktif
+                    st.dataframe(
+                        df_rekap[["NIS", "Nama Siswa", "Kelas", "Status", "Nilai", "Link File"]],
+                        use_container_width=True,
+                        column_config={
+                            "Link File": st.column_config.LinkColumn("Berkas Tugas (Klik untuk Buka/Unduh)")
+                        }
+                    )
 
                     st.markdown("---")
                     st.subheader("📝 Input Skor Nilai Siswa")
@@ -279,12 +289,12 @@ elif role == "Guru":
             with tab2:
                 list_tugas = [t for t in df_tugas["Nama Tugas"].tolist() if str(t).strip() != ""] if not df_tugas.empty else []
                 if list_tugas:
-                    tugas_diedit = st.selectbox("Pilih Tugas yang Akan Diedit:", list_tugas, key="select_edit_tugas_v7")
+                    tugas_diedit = st.selectbox("Pilih Tugas yang Akan Diedit:", list_tugas, key="select_edit_tugas_v8")
                     
                     df_t_sub = df_tugas[df_tugas["Nama Tugas"] == tugas_diedit]
                     tingkat_asal = df_t_sub["Tingkat"].values[0] if not df_t_sub.empty else "Kelas X"
 
-                    with st.form("form_edit_tugas_v7"):
+                    with st.form("form_edit_tugas_v8"):
                         e_nama_tugas = st.text_input("Nama Tugas Baru:", value=str(tugas_diedit))
                         idx_tingkat = ["Kelas X", "Kelas XI", "Kelas XII"].index(tingkat_asal) if tingkat_asal in ["Kelas X", "Kelas XI", "Kelas XII"] else 0
                         e_tingkat = st.selectbox("Target Tingkat:", ["Kelas X", "Kelas XI", "Kelas XII"], index=idx_tingkat)
@@ -305,7 +315,7 @@ elif role == "Guru":
             with tab3:
                 list_tugas = [t for t in df_tugas["Nama Tugas"].tolist() if str(t).strip() != ""] if not df_tugas.empty else []
                 if list_tugas:
-                    tugas_dihapus = st.selectbox("Pilih Tugas yang Akan Dihapus:", list_tugas, key="select_hapus_tugas_v7")
+                    tugas_dihapus = st.selectbox("Pilih Tugas yang Akan Dihapus:", list_tugas, key="select_hapus_tugas_v8")
                     
                     if st.button("🔴 Hapus Tugas Ini", type="primary"):
                         payload = {"nama_tugas": tugas_dihapus}
@@ -364,7 +374,7 @@ elif role == "Guru":
                             list_siswa_label.append(f"{nis_val} - {nama_val} ({kelas_val})")
 
                     if list_siswa_label:
-                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Diedit:", list_siswa_label, key="select_edit_siswa_v7")
+                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Diedit:", list_siswa_label, key="select_edit_siswa_v8")
                         
                         nis_pilihan = siswa_pilihan_label.split(" - ")[0].strip()
                         df_s_sub = df_siswa[df_siswa["NIS"] == nis_pilihan]
@@ -372,7 +382,7 @@ elif role == "Guru":
                         nama_asal = df_s_sub["Nama Siswa"].values[0] if not df_s_sub.empty else ""
                         kelas_asal = df_s_sub["Kelas"].values[0] if not df_s_sub.empty else ""
 
-                        with st.form("form_edit_siswa_v7"):
+                        with st.form("form_edit_siswa_v8"):
                             st.text_input("NIS (Tidak dapat diubah):", value=str(nis_pilihan), disabled=True)
                             e_nama = st.text_input("Nama Siswa:", value=str(nama_asal))
                             e_kelas = st.text_input("Kelas:", value=str(kelas_asal))
@@ -403,7 +413,7 @@ elif role == "Guru":
                             list_siswa_label.append(f"{nis_val} - {nama_val} ({kelas_val})")
 
                     if list_siswa_label:
-                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Dihapus:", list_siswa_label, key="select_hapus_siswa_v7")
+                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Dihapus:", list_siswa_label, key="select_hapus_siswa_v8")
                         
                         nis_pilihan = siswa_pilihan_label.split(" - ")[0].strip()
                         
