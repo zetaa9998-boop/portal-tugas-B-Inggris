@@ -87,7 +87,7 @@ if st.sidebar.button("🔄 Segarkan Data", use_container_width=True):
 role = st.sidebar.selectbox("Login Sebagai:", ["Siswa", "Guru"], key="main_role_select")
 
 # ===================================================================
-# PORTAL SISWA (Nilai Disembunyikan)
+# PORTAL SISWA
 # ===================================================================
 if role == "Siswa":
     st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas")
@@ -165,7 +165,7 @@ if role == "Siswa":
                                 st.error("Silakan pilih berkas terlebih dahulu.")
 
 # ===================================================================
-# PORTAL GURU (Nilai Terlihat & Ada Rekap Rata-rata Nilai)
+# PORTAL GURU
 # ===================================================================
 elif role == "Guru":
     st.title("👨‍🏫 Portal Guru - Pengelolaan & Penilaian")
@@ -182,16 +182,17 @@ elif role == "Guru":
 
         menu_guru = st.sidebar.radio("Pilih Menu Guru:", [
             "📊 Rekapitulasi & Penilaian", 
+            "📈 Rekap Global & Rata-Rata Nilai",
             "⚙️ Kelola Tugas Per Tingkat", 
             "👤 Kelola Data Siswa"
         ], key="radio_menu_guru")
 
+        # 1. MENU REKAPITULASI & PENILAIAN PER TUGAS
         if menu_guru == "📊 Rekapitulasi & Penilaian":
             st.header("📊 Rekapitulasi & Penilaian Tugas")
 
             tingkat_pilihan = st.selectbox("Pilih Tingkat Kelas:", ["Kelas X", "Kelas XI", "Kelas XII"], key="guru_select_tingkat_rekap")
 
-            # --- FITUR TAMBAHAN: HITUNG RATA-RATA NILAI PER TINGKAT ---
             if not df_siswa.empty and not df_pengumpulan.empty and not df_tugas.empty:
                 df_s_temp = df_siswa.copy()
                 df_s_temp["Tingkat"] = df_s_temp["Kelas"].apply(dapatkan_tingkat_kelas)
@@ -201,11 +202,8 @@ elif role == "Guru":
                     df_merge_all = pd.merge(df_s_tingkat_all, df_pengumpulan, on="NIS", how="inner")
                     if not df_merge_all.empty and "Nilai" in df_merge_all.columns:
                         df_merge_all["Nilai_Num"] = pd.to_numeric(df_merge_all["Nilai"], errors="coerce").fillna(0.0)
-                        
-                        # Ambil hanya nilai yang > 0 atau sudah dinilai
                         nilai_valid = df_merge_all[df_merge_all["Nilai_Num"] > 0]["Nilai_Num"]
                         rata_rata_tingkat = nilai_valid.mean() if not nilai_valid.empty else 0.0
-                        
                         st.metric(label=f"📈 Rata-Rata Nilai Keseluruhan ({tingkat_pilihan})", value=f"{rata_rata_tingkat:.2f}")
 
             tugas_tersedia = []
@@ -283,6 +281,60 @@ elif role == "Guru":
                                     time.sleep(1)
                                     st.rerun()
 
+        # 2. MENU BARU: REKAP GLOBAL SEMUA TINGKAT & KOLOM RATA-RATA DI PINGGIR
+        elif menu_guru == "📈 Rekap Global & Rata-Rata Nilai":
+            st.header("📈 Rekapitulasi Nilai Keseluruhan & Kolom Rata-Rata")
+            st.info("Tabel di bawah ini menampilkan matriks nilai seluruh siswa dari semua tingkat kelas beserta kolom rata-rata nilai di bagian pinggir.")
+
+            if df_siswa.empty:
+                st.warning("Belum ada data siswa.")
+            else:
+                # Ambil daftar seluruh tugas yang ada
+                list_semua_tugas = [t for t in df_tugas["Nama Tugas"].unique() if str(t).strip() != ""] if not df_tugas.empty else []
+
+                # Buat Pivot Table Nilai (Baris = Siswa, Kolom = Nama Tugas)
+                if not df_pengumpulan.empty and "Nama Tugas" in df_pengumpulan.columns and "Nilai" in df_pengumpulan.columns:
+                    df_p_copy = df_pengumpulan.copy()
+                    df_p_copy["Nilai_Num"] = pd.to_numeric(df_p_copy["Nilai"], errors="coerce").fillna(0.0)
+                    
+                    # Pivot NIS terhadap Nama Tugas
+                    pivot_nilai = df_p_copy.pivot_table(index="NIS", columns="Nama Tugas", values="Nilai_Num", aggfunc="max").fillna(0.0)
+                else:
+                    pivot_nilai = pd.DataFrame(index=df_siswa["NIS"])
+
+                # Gabungkan data siswa dengan pivot nilai
+                df_rekap_global = df_siswa.copy()
+                df_rekap_global = pd.merge(df_rekap_global, pivot_nilai, on="NIS", how="left").fillna(0.0)
+
+                # Hitung kolom Rata-Rata di pinggir (berdasarkan kolom tugas yang ada)
+                kolom_tugas_ada = [t for t in list_semua_tugas if t in df_rekap_global.columns]
+                if kolom_tugas_ada:
+                    df_rekap_global["Nilai Rata-Rata"] = df_rekap_global[kolom_tugas_ada].mean(axis=1).round(2)
+                else:
+                    df_rekap_global["Nilai Rata-Rata"] = 0.0
+
+                # Filter berdasarkan Tingkat Kelas jika diinginkan
+                pilihan_filter_tingkat = st.selectbox("Filter Tampilan Tingkat:", ["Semua Tingkat (X, XI, XII)", "Kelas X", "Kelas XI", "Kelas XII"], key="filter_global_tingkat")
+                
+                if pilihan_filter_tingkat != "Semua Tingkat (X, XI, XII)":
+                    df_rekap_global["Tingkat"] = df_rekap_global["Kelas"].apply(dapatkan_tingkat_kelas)
+                    df_rekap_global = df_rekap_global[df_rekap_global["Tingkat"] == pilihan_filter_tingkat]
+                    df_rekap_global = df_rekap_global.drop(columns=["Tingkat"])
+
+                st.dataframe(df_rekap_global, use_container_width=True)
+
+                # Tombol Download ke CSV/Excel
+                st.markdown("---")
+                st.subheader("📥 Unduh Hasil Rekapitulasi")
+                csv_data = df_rekap_global.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Unduh Rekap Nilai & Rata-Rata (.csv)",
+                    data=csv_data,
+                    file_name="Rekapitulasi_Nilai_Dan_RataRata_Siswa.csv",
+                    mime="text/csv",
+                )
+
+        # 3. MENU KELOLA TUGAS
         elif menu_guru == "⚙️ Kelola Tugas Per Tingkat":
             st.header("⚙️ Buat & Kelola Tugas Berdasarkan Tingkat Kelas")
 
@@ -341,6 +393,7 @@ elif role == "Guru":
                 else:
                     st.info("Belum ada data tugas untuk dihapus.")
 
+        # 4. MENU KELOLA SISWA
         elif menu_guru == "👤 Kelola Data Siswa":
             st.header("👤 Kelola Data Siswa")
 
