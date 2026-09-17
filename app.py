@@ -6,7 +6,6 @@ import time
 import streamlit as st
 import pandas as pd
 
-# Konfigurasi Event Loop untuk Windows
 if sys.platform == 'win32':
     try:
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -16,54 +15,49 @@ if sys.platform == 'win32':
 st.set_page_config(page_title="Aplikasi Pengumpul Tugas SMK", layout="wide")
 
 PASSWORD_GURU = "Guru123!"
+SHEET_ID = "1BTUS3nbirH2sU_j6u2YLZDTykYyULMYXNsE30mkhiAo"
 
 # ===================================================================
-# FUNGSI BACA DAN KIRIM DATA VIA GOOGLE APPS SCRIPT
+# FUNGSI MEMBACA DATA DARI GOOGLE SHEETS
 # ===================================================================
-@st.cache_data(ttl=5)  # Cache otomatis diperbarui setiap 5 detik agar responsif & cepat
-def muat_semua_data():
+@st.cache_data(ttl=2)
+def muat_data_sheet(nama_tab):
     try:
-        url = st.secrets["WEBAPP_URL"] + "?action=baca_semua"
-        # Timeout dinaikkan ke 25 detik untuk memberi waktu Google Apps Script memproses
-        resp = requests.get(url, timeout=25)
-        if resp.status_code == 200:
-            data_json = resp.json()
-            
-            # Formating Siswa
-            raw_siswa = data_json.get("siswa", [])
-            if len(raw_siswa) > 1:
-                df_siswa = pd.DataFrame(raw_siswa[1:], columns=raw_siswa[0]).astype(str)
-            else:
-                df_siswa = pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
-                
-            # Formating Tugas
-            raw_tugas = data_json.get("tugas", [])
-            if len(raw_tugas) > 1:
-                df_tugas = pd.DataFrame(raw_tugas[1:], columns=raw_tugas[0]).astype(str)
-            else:
-                df_tugas = pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
-                
-            # Formating Pengumpulan
-            raw_pengumpulan = data_json.get("pengumpulan", [])
-            if len(raw_pengumpulan) > 1:
-                df_pengumpulan = pd.DataFrame(raw_pengumpulan[1:], columns=raw_pengumpulan[0]).astype(str)
-            else:
-                df_pengumpulan = pd.DataFrame(columns=["NIS", "Nama Tugas", "Status", "Nilai"])
-                
-            return df_siswa, df_tugas, df_pengumpulan
-        else:
-            st.error(f"Gagal mengambil data dari Apps Script! Code: {resp.status_code}")
-            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error Koneksi Apps Script: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        # Panggilan cepat via ekspor CSV gviz
+        timestamp = int(time.time())
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={nama_tab}&_t={timestamp}"
+        df = pd.read_csv(url, dtype=str)
+        df = df.fillna("")
+        for col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+        return df
+    except Exception:
+        # Fallback jika CSV gagal: panggil via Web App Apps Script
+        try:
+            url_gas = st.secrets["WEBAPP_URL"] + "?action=baca_semua"
+            resp = requests.get(url_gas, timeout=15)
+            if resp.status_code == 200:
+                data_json = resp.json()
+                key = nama_tab.lower()
+                raw_data = data_json.get(key, [])
+                if len(raw_data) > 1:
+                    return pd.DataFrame(raw_data[1:], columns=raw_data[0]).astype(str).fillna("")
+        except Exception:
+            pass
+        return pd.DataFrame()
+
+def muat_semua_data():
+    df_siswa = muat_data_sheet("Siswa")
+    df_tugas = muat_data_sheet("Tugas")
+    df_pengumpulan = muat_data_sheet("Pengumpulan")
+    return df_siswa, df_tugas, df_pengumpulan
 
 def kirim_data_ke_sheet(action, payload):
     try:
         url = st.secrets["WEBAPP_URL"]
         response = requests.post(url, data=json.dumps({"action": action, "payload": payload}))
         if response.status_code == 200:
-            st.cache_data.clear()  # Bersihkan cache agar data terbaru langsung ditarik
+            st.cache_data.clear()
             return True
         else:
             st.error(f"Gagal menyimpan! Response: {response.text}")
@@ -72,7 +66,6 @@ def kirim_data_ke_sheet(action, payload):
         st.error(f"Gagal menghubungkan ke Apps Script: {e}")
         return False
 
-# Memuat data secara dinamis
 df_siswa, df_tugas, df_pengumpulan = muat_semua_data()
 
 def dapatkan_tingkat_kelas(nama_kelas: str) -> str:
@@ -105,7 +98,8 @@ if role == "Siswa":
     if df_siswa.empty:
         st.warning("Data siswa belum tersedia di Google Sheets.")
     else:
-        list_kelas = sorted([k for k in df_siswa["Kelas"].unique() if str(k).strip() != ""])
+        col_kelas = df_siswa.columns[2] if len(df_siswa.columns) >= 3 else df_siswa.columns[0]
+        list_kelas = sorted([k for k in df_siswa[col_kelas].unique() if str(k).strip() != ""])
         
         if not list_kelas:
             st.warning("Belum ada data kelas yang terdaftar.")
@@ -115,16 +109,21 @@ if role == "Siswa":
 
             st.info(f"Tingkat Kelas Terdeteksi: **{tingkat_siswa}**")
 
-            df_siswa_kelas = df_siswa[df_siswa["Kelas"] == str(kelas_siswa)]
-            list_siswa = [s for s in df_siswa_kelas["Nama Siswa"].tolist() if str(s).strip() != ""]
+            col_nama = df_siswa.columns[1] if len(df_siswa.columns) >= 2 else df_siswa.columns[0]
+            col_nis = df_siswa.columns[0]
+
+            df_siswa_kelas = df_siswa[df_siswa[col_kelas] == str(kelas_siswa)]
+            list_siswa = [s for s in df_siswa_kelas[col_nama].tolist() if str(s).strip() != ""]
 
             if list_siswa:
                 siswa_terpilih = st.selectbox("Pilih Nama Anda:", list_siswa, key="siswa_pilih_nama")
-                nis_siswa = str(df_siswa_kelas[df_siswa_kelas["Nama Siswa"] == siswa_terpilih]["NIS"].values[0])
+                nis_siswa = str(df_siswa_kelas[df_siswa_kelas[col_nama] == siswa_terpilih][col_nis].values[0])
 
                 tugas_tingkat = []
-                if not df_tugas.empty:
-                    tugas_tingkat = [t for t in df_tugas[df_tugas["Tingkat"] == tingkat_siswa]["Nama Tugas"].tolist() if str(t).strip() != ""]
+                if not df_tugas.empty and len(df_tugas.columns) >= 2:
+                    col_t_nama = df_tugas.columns[0]
+                    col_t_tingkat = df_tugas.columns[1]
+                    tugas_tingkat = [t for t in df_tugas[df_tugas[col_t_tingkat] == tingkat_siswa][col_t_nama].tolist() if str(t).strip() != ""]
 
                 st.markdown("---")
                 if not tugas_tingkat:
@@ -132,14 +131,17 @@ if role == "Siswa":
                 else:
                     tugas_terpilih = st.selectbox("Pilih Tugas yang Ingin Dikumpulkan:", tugas_tingkat, key="siswa_pilih_tugas")
 
-                    # Cek Status Pengumpulan
                     q_status = pd.DataFrame()
-                    if not df_pengumpulan.empty:
-                        q_status = df_pengumpulan[(df_pengumpulan["NIS"] == nis_siswa) & (df_pengumpulan["Nama Tugas"] == tugas_terpilih)]
+                    if not df_pengumpulan.empty and len(df_pengumpulan.columns) >= 2:
+                        col_p_nis = df_pengumpulan.columns[0]
+                        col_p_tugas = df_pengumpulan.columns[1]
+                        q_status = df_pengumpulan[(df_pengumpulan[col_p_nis] == nis_siswa) & (df_pengumpulan[col_p_tugas] == tugas_terpilih)]
                     
                     if not q_status.empty:
-                        status_saat_ini = str(q_status["Status"].values[0])
-                        nilai_saat_ini = q_status["Nilai"].values[0]
+                        col_p_status = df_pengumpulan.columns[2] if len(df_pengumpulan.columns) >= 3 else ""
+                        col_p_nilai = df_pengumpulan.columns[3] if len(df_pengumpulan.columns) >= 4 else ""
+                        status_saat_ini = str(q_status[col_p_status].values[0]) if col_p_status else "Belum Mengumpulkan"
+                        nilai_saat_ini = q_status[col_p_nilai].values[0] if col_p_nilai else 0.0
                     else:
                         status_saat_ini = "Belum Mengumpulkan"
                         nilai_saat_ini = 0.0
@@ -190,43 +192,48 @@ elif role == "Guru":
             "👤 Kelola Data Siswa"
         ], key="radio_menu_guru")
 
-        # ---------------------------------------------------------------
-        # MENU 1: REKAPITULASI & PENILAIAN
-        # ---------------------------------------------------------------
         if menu_guru == "📊 Rekapitulasi & Penilaian":
             st.header("📊 Rekapitulasi & Penilaian Tugas")
 
             tingkat_pilihan = st.selectbox("Pilih Tingkat Kelas:", ["Kelas X", "Kelas XI", "Kelas XII"], key="guru_select_tingkat_rekap")
 
             tugas_tersedia = []
-            if not df_tugas.empty:
-                tugas_tersedia = [t for t in df_tugas[df_tugas["Tingkat"] == tingkat_pilihan]["Nama Tugas"].tolist() if str(t).strip() != ""]
+            if not df_tugas.empty and len(df_tugas.columns) >= 2:
+                col_t_nama = df_tugas.columns[0]
+                col_t_tingkat = df_tugas.columns[1]
+                tugas_tersedia = [t for t in df_tugas[df_tugas[col_t_tingkat] == tingkat_pilihan][col_t_nama].tolist() if str(t).strip() != ""]
 
             if not tugas_tersedia:
                 st.warning(f"Belum ada tugas yang dibuat untuk **{tingkat_pilihan}**.")
             else:
-                col_tugas, col_kelas = st.columns(2)
+                col_tugas, col_kelas_col = st.columns(2)
                 with col_tugas:
                     tugas_pilihan = st.selectbox("Pilih Tugas:", tugas_tersedia, key="guru_pilih_tugas_rekap")
-                with col_kelas:
-                    semua_kelas = [k for k in df_siswa["Kelas"].unique() if str(k).strip() != ""] if not df_siswa.empty else []
+                with col_kelas_col:
+                    col_s_kelas = df_siswa.columns[2] if len(df_siswa.columns) >= 3 else df_siswa.columns[0]
+                    semua_kelas = [k for k in df_siswa[col_s_kelas].unique() if str(k).strip() != ""] if not df_siswa.empty else []
                     kelas_in_tingkat = [k for k in semua_kelas if dapatkan_tingkat_kelas(k) == tingkat_pilihan]
                     filter_kelas = st.selectbox("Filter Rombel/Kelas:", ["Semua Rombel"] + sorted(kelas_in_tingkat), key="guru_filter_rombel_rekap")
 
                 df_siswa_tingkat = df_siswa.copy()
-                if not df_siswa_tingkat.empty:
-                    df_siswa_tingkat["Tingkat"] = df_siswa_tingkat["Kelas"].apply(dapatkan_tingkat_kelas)
+                if not df_siswa_tingkat.empty and len(df_siswa_tingkat.columns) >= 3:
+                    col_nis = df_siswa_tingkat.columns[0]
+                    col_nama = df_siswa_tingkat.columns[1]
+                    col_kelas = df_siswa_tingkat.columns[2]
+
+                    df_siswa_tingkat["Tingkat"] = df_siswa_tingkat[col_kelas].apply(dapatkan_tingkat_kelas)
                     df_siswa_tingkat = df_siswa_tingkat[df_siswa_tingkat["Tingkat"] == tingkat_pilihan]
 
                     if filter_kelas != "Semua Rombel":
-                        df_siswa_tingkat = df_siswa_tingkat[df_siswa_tingkat["Kelas"] == str(filter_kelas)]
+                        df_siswa_tingkat = df_siswa_tingkat[df_siswa_tingkat[col_kelas] == str(filter_kelas)]
 
                     df_p_sub = pd.DataFrame()
-                    if not df_pengumpulan.empty:
-                        df_p_sub = df_pengumpulan[df_pengumpulan["Nama Tugas"] == tugas_pilihan].copy()
+                    if not df_pengumpulan.empty and len(df_pengumpulan.columns) >= 2:
+                        col_p_tugas = df_pengumpulan.columns[1]
+                        df_p_sub = df_pengumpulan[df_pengumpulan[col_p_tugas] == tugas_pilihan].copy()
 
                     if not df_p_sub.empty:
-                        df_rekap = pd.merge(df_siswa_tingkat, df_p_sub, on="NIS", how="left")
+                        df_rekap = pd.merge(df_siswa_tingkat, df_p_sub, left_on=col_nis, right_on=df_p_sub.columns[0], how="left")
                     else:
                         df_rekap = df_siswa_tingkat.copy()
                         df_rekap["Status"] = "Belum Mengumpulkan"
@@ -235,18 +242,18 @@ elif role == "Guru":
                     df_rekap["Status"] = df_rekap["Status"].fillna("Belum Mengumpulkan")
                     df_rekap["Nilai"] = df_rekap["Nilai"].fillna("0.0")
 
-                    st.dataframe(df_rekap[["NIS", "Nama Siswa", "Kelas", "Status", "Nilai"]], use_container_width=True)
+                    st.dataframe(df_rekap[[col_nis, col_nama, col_kelas, "Status", "Nilai"]], use_container_width=True)
 
                     st.markdown("---")
                     st.subheader("📝 Input Skor Nilai Siswa")
 
-                    list_nama_siswa = [s for s in df_rekap["Nama Siswa"].tolist() if str(s).strip() != ""]
+                    list_nama_siswa = [s for s in df_rekap[col_nama].tolist() if str(s).strip() != ""]
                     if list_nama_siswa:
                         siswa_pilihan = st.selectbox("Pilih Siswa:", list_nama_siswa, key="guru_pilih_siswa_nilai")
-                        nis_pilihan = str(df_rekap[df_rekap["Nama Siswa"] == siswa_pilihan]["NIS"].values[0])
+                        nis_pilihan = str(df_rekap[df_rekap[col_nama] == siswa_pilihan][col_nis].values[0])
 
-                        nilai_saat_ini = df_rekap[df_rekap["Nama Siswa"] == siswa_pilihan]["Nilai"].values[0]
-                        status_saat_ini = df_rekap[df_rekap["Nama Siswa"] == siswa_pilihan]["Status"].values[0]
+                        nilai_saat_ini = df_rekap[df_rekap[col_nama] == siswa_pilihan]["Nilai"].values[0]
+                        status_saat_ini = df_rekap[df_rekap[col_nama] == siswa_pilihan]["Status"].values[0]
 
                         with st.form("form_input_nilai"):
                             skor = st.number_input(f"Berikan Nilai untuk {siswa_pilihan}:", min_value=0.0, max_value=100.0, value=float(nilai_saat_ini) if str(nilai_saat_ini).replace('.', '', 1).isdigit() else 0.0)
@@ -264,9 +271,6 @@ elif role == "Guru":
                                     time.sleep(1)
                                     st.rerun()
 
-        # ---------------------------------------------------------------
-        # MENU 2: KELOLA TUGAS PER TINGKAT (TAMBAH, EDIT, HAPUS)
-        # ---------------------------------------------------------------
         elif menu_guru == "⚙️ Kelola Tugas Per Tingkat":
             st.header("⚙️ Buat & Kelola Tugas Berdasarkan Tingkat Kelas")
 
@@ -286,14 +290,14 @@ elif role == "Guru":
                                 st.rerun()
 
             with tab2:
-                list_tugas = [t for t in df_tugas["Nama Tugas"].tolist() if str(t).strip() != ""] if not df_tugas.empty else []
+                list_tugas = [t for t in df_tugas.iloc[:, 0].tolist() if str(t).strip() != ""] if not df_tugas.empty else []
                 if list_tugas:
-                    tugas_diedit = st.selectbox("Pilih Tugas yang Akan Diedit:", list_tugas, key="select_edit_tugas_v5")
+                    tugas_diedit = st.selectbox("Pilih Tugas yang Akan Diedit:", list_tugas, key="select_edit_tugas_v6")
                     
-                    df_t_sub = df_tugas[df_tugas["Nama Tugas"] == tugas_diedit]
-                    tingkat_asal = df_t_sub["Tingkat"].values[0] if not df_t_sub.empty else "Kelas X"
+                    df_t_sub = df_tugas[df_tugas.iloc[:, 0] == tugas_diedit]
+                    tingkat_asal = df_t_sub.iloc[0, 1] if not df_t_sub.empty and len(df_t_sub.columns) > 1 else "Kelas X"
 
-                    with st.form("form_edit_tugas_v5"):
+                    with st.form("form_edit_tugas_v6"):
                         e_nama_tugas = st.text_input("Nama Tugas Baru:", value=str(tugas_diedit))
                         idx_tingkat = ["Kelas X", "Kelas XI", "Kelas XII"].index(tingkat_asal) if tingkat_asal in ["Kelas X", "Kelas XI", "Kelas XII"] else 0
                         e_tingkat = st.selectbox("Target Tingkat:", ["Kelas X", "Kelas XI", "Kelas XII"], index=idx_tingkat)
@@ -312,9 +316,9 @@ elif role == "Guru":
                     st.info("Belum ada data tugas untuk diedit.")
 
             with tab3:
-                list_tugas = [t for t in df_tugas["Nama Tugas"].tolist() if str(t).strip() != ""] if not df_tugas.empty else []
+                list_tugas = [t for t in df_tugas.iloc[:, 0].tolist() if str(t).strip() != ""] if not df_tugas.empty else []
                 if list_tugas:
-                    tugas_dihapus = st.selectbox("Pilih Tugas yang Akan Dihapus:", list_tugas, key="select_hapus_tugas_v5")
+                    tugas_dihapus = st.selectbox("Pilih Tugas yang Akan Dihapus:", list_tugas, key="select_hapus_tugas_v6")
                     
                     if st.button("🔴 Hapus Tugas Ini", type="primary"):
                         payload = {"nama_tugas": tugas_dihapus}
@@ -325,9 +329,6 @@ elif role == "Guru":
                 else:
                     st.info("Belum ada data tugas untuk dihapus.")
 
-        # ---------------------------------------------------------------
-        # MENU 3: KELOLA DATA SISWA (UPLOAD, TAMBAH, EDIT, HAPUS)
-        # ---------------------------------------------------------------
         elif menu_guru == "👤 Kelola Data Siswa":
             st.header("👤 Kelola Data Siswa")
 
@@ -365,27 +366,26 @@ elif role == "Guru":
                                 time.sleep(1)
                                 st.rerun()
 
-            # --- TAB 3: EDIT SISWA ---
             with tab3:
                 if not df_siswa.empty:
                     list_siswa_label = []
                     for _, row in df_siswa.iterrows():
-                        nis_val = str(row.get("NIS", "")).strip()
-                        nama_val = str(row.get("Nama Siswa", "")).strip()
-                        kelas_val = str(row.get("Kelas", "")).strip()
+                        nis_val = str(row.iloc[0]).strip() if len(row) > 0 else ""
+                        nama_val = str(row.iloc[1]).strip() if len(row) > 1 else ""
+                        kelas_val = str(row.iloc[2]).strip() if len(row) > 2 else ""
                         if nis_val and nama_val:
                             list_siswa_label.append(f"{nis_val} - {nama_val} ({kelas_val})")
 
                     if list_siswa_label:
-                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Diedit:", list_siswa_label, key="select_edit_siswa_v5")
+                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Diedit:", list_siswa_label, key="select_edit_siswa_v6")
                         
                         nis_pilihan = siswa_pilihan_label.split(" - ")[0].strip()
-                        df_s_sub = df_siswa[df_siswa["NIS"] == nis_pilihan]
+                        df_s_sub = df_siswa[df_siswa.iloc[:, 0].astype(str).str.strip() == nis_pilihan]
                         
-                        nama_asal = df_s_sub["Nama Siswa"].values[0] if not df_s_sub.empty else ""
-                        kelas_asal = df_s_sub["Kelas"].values[0] if not df_s_sub.empty else ""
+                        nama_asal = df_s_sub.iloc[0, 1] if not df_s_sub.empty and len(df_s_sub.columns) > 1 else ""
+                        kelas_asal = df_s_sub.iloc[0, 2] if not df_s_sub.empty and len(df_s_sub.columns) > 2 else ""
 
-                        with st.form("form_edit_siswa_v5"):
+                        with st.form("form_edit_siswa_v6"):
                             st.text_input("NIS (Tidak dapat diubah):", value=str(nis_pilihan), disabled=True)
                             e_nama = st.text_input("Nama Siswa:", value=str(nama_asal))
                             e_kelas = st.text_input("Kelas:", value=str(kelas_asal))
@@ -405,19 +405,18 @@ elif role == "Guru":
                 else:
                     st.info("Belum ada data siswa untuk diedit.")
 
-            # --- TAB 4: HAPUS SISWA ---
             with tab4:
                 if not df_siswa.empty:
                     list_siswa_label = []
                     for _, row in df_siswa.iterrows():
-                        nis_val = str(row.get("NIS", "")).strip()
-                        nama_val = str(row.get("Nama Siswa", "")).strip()
-                        kelas_val = str(row.get("Kelas", "")).strip()
+                        nis_val = str(row.iloc[0]).strip() if len(row) > 0 else ""
+                        nama_val = str(row.iloc[1]).strip() if len(row) > 1 else ""
+                        kelas_val = str(row.iloc[2]).strip() if len(row) > 2 else ""
                         if nis_val and nama_val:
                             list_siswa_label.append(f"{nis_val} - {nama_val} ({kelas_val})")
 
                     if list_siswa_label:
-                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Dihapus:", list_siswa_label, key="select_hapus_siswa_v5")
+                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Dihapus:", list_siswa_label, key="select_hapus_siswa_v6")
                         
                         nis_pilihan = siswa_pilihan_label.split(" - ")[0].strip()
                         
