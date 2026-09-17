@@ -231,7 +231,6 @@ elif role == "Guru":
                     if "Link File" not in df_rekap.columns:
                         df_rekap["Link File"] = ""
 
-                    # Guru tetap melihat nilai dan link file secara lengkap
                     st.dataframe(
                         df_rekap[["NIS", "Nama Siswa", "Kelas", "Status", "Nilai", "Link File"]],
                         use_container_width=True,
