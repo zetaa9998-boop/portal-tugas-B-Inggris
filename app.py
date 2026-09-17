@@ -6,6 +6,7 @@ import time
 import streamlit as st
 import pandas as pd
 
+# Konfigurasi Event Loop untuk Windows
 if sys.platform == 'win32':
     try:
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -19,10 +20,12 @@ PASSWORD_GURU = "Guru123!"
 # ===================================================================
 # FUNGSI BACA DAN KIRIM DATA VIA GOOGLE APPS SCRIPT
 # ===================================================================
+@st.cache_data(ttl=5)  # Cache otomatis diperbarui setiap 5 detik agar responsif & cepat
 def muat_semua_data():
     try:
         url = st.secrets["WEBAPP_URL"] + "?action=baca_semua"
-        resp = requests.get(url, timeout=10)
+        # Timeout dinaikkan ke 25 detik untuk memberi waktu Google Apps Script memproses
+        resp = requests.get(url, timeout=25)
         if resp.status_code == 200:
             data_json = resp.json()
             
@@ -60,6 +63,7 @@ def kirim_data_ke_sheet(action, payload):
         url = st.secrets["WEBAPP_URL"]
         response = requests.post(url, data=json.dumps({"action": action, "payload": payload}))
         if response.status_code == 200:
+            st.cache_data.clear()  # Bersihkan cache agar data terbaru langsung ditarik
             return True
         else:
             st.error(f"Gagal menyimpan! Response: {response.text}")
@@ -87,6 +91,7 @@ def dapatkan_tingkat_kelas(nama_kelas: str) -> str:
 st.sidebar.title("📌 Navigasi Portal")
 
 if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
+    st.cache_data.clear()
     st.rerun()
 
 role = st.sidebar.selectbox("Login Sebagai:", ["Siswa", "Guru"], key="main_role_select")
@@ -283,12 +288,12 @@ elif role == "Guru":
             with tab2:
                 list_tugas = [t for t in df_tugas["Nama Tugas"].tolist() if str(t).strip() != ""] if not df_tugas.empty else []
                 if list_tugas:
-                    tugas_diedit = st.selectbox("Pilih Tugas yang Akan Diedit:", list_tugas, key="select_edit_tugas_v4")
+                    tugas_diedit = st.selectbox("Pilih Tugas yang Akan Diedit:", list_tugas, key="select_edit_tugas_v5")
                     
                     df_t_sub = df_tugas[df_tugas["Nama Tugas"] == tugas_diedit]
                     tingkat_asal = df_t_sub["Tingkat"].values[0] if not df_t_sub.empty else "Kelas X"
 
-                    with st.form("form_edit_tugas_v4"):
+                    with st.form("form_edit_tugas_v5"):
                         e_nama_tugas = st.text_input("Nama Tugas Baru:", value=str(tugas_diedit))
                         idx_tingkat = ["Kelas X", "Kelas XI", "Kelas XII"].index(tingkat_asal) if tingkat_asal in ["Kelas X", "Kelas XI", "Kelas XII"] else 0
                         e_tingkat = st.selectbox("Target Tingkat:", ["Kelas X", "Kelas XI", "Kelas XII"], index=idx_tingkat)
@@ -309,7 +314,7 @@ elif role == "Guru":
             with tab3:
                 list_tugas = [t for t in df_tugas["Nama Tugas"].tolist() if str(t).strip() != ""] if not df_tugas.empty else []
                 if list_tugas:
-                    tugas_dihapus = st.selectbox("Pilih Tugas yang Akan Dihapus:", list_tugas, key="select_hapus_tugas_v4")
+                    tugas_dihapus = st.selectbox("Pilih Tugas yang Akan Dihapus:", list_tugas, key="select_hapus_tugas_v5")
                     
                     if st.button("🔴 Hapus Tugas Ini", type="primary"):
                         payload = {"nama_tugas": tugas_dihapus}
@@ -372,7 +377,7 @@ elif role == "Guru":
                             list_siswa_label.append(f"{nis_val} - {nama_val} ({kelas_val})")
 
                     if list_siswa_label:
-                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Diedit:", list_siswa_label, key="select_edit_siswa_v4")
+                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Diedit:", list_siswa_label, key="select_edit_siswa_v5")
                         
                         nis_pilihan = siswa_pilihan_label.split(" - ")[0].strip()
                         df_s_sub = df_siswa[df_siswa["NIS"] == nis_pilihan]
@@ -380,7 +385,7 @@ elif role == "Guru":
                         nama_asal = df_s_sub["Nama Siswa"].values[0] if not df_s_sub.empty else ""
                         kelas_asal = df_s_sub["Kelas"].values[0] if not df_s_sub.empty else ""
 
-                        with st.form("form_edit_siswa_v4"):
+                        with st.form("form_edit_siswa_v5"):
                             st.text_input("NIS (Tidak dapat diubah):", value=str(nis_pilihan), disabled=True)
                             e_nama = st.text_input("Nama Siswa:", value=str(nama_asal))
                             e_kelas = st.text_input("Kelas:", value=str(kelas_asal))
@@ -412,7 +417,7 @@ elif role == "Guru":
                             list_siswa_label.append(f"{nis_val} - {nama_val} ({kelas_val})")
 
                     if list_siswa_label:
-                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Dihapus:", list_siswa_label, key="select_hapus_siswa_v4")
+                        siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Dihapus:", list_siswa_label, key="select_hapus_siswa_v5")
                         
                         nis_pilihan = siswa_pilihan_label.split(" - ")[0].strip()
                         
