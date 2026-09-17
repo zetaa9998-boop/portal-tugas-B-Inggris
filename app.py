@@ -165,7 +165,7 @@ if role == "Siswa":
                                 st.error("Silakan pilih berkas terlebih dahulu.")
 
 # ===================================================================
-# PORTAL GURU (Nilai Tetap Terlihat & Dapat Dikelola)
+# PORTAL GURU (Nilai Terlihat & Ada Rekap Rata-rata Nilai)
 # ===================================================================
 elif role == "Guru":
     st.title("👨‍🏫 Portal Guru - Pengelolaan & Penilaian")
@@ -190,6 +190,23 @@ elif role == "Guru":
             st.header("📊 Rekapitulasi & Penilaian Tugas")
 
             tingkat_pilihan = st.selectbox("Pilih Tingkat Kelas:", ["Kelas X", "Kelas XI", "Kelas XII"], key="guru_select_tingkat_rekap")
+
+            # --- FITUR TAMBAHAN: HITUNG RATA-RATA NILAI PER TINGKAT ---
+            if not df_siswa.empty and not df_pengumpulan.empty and not df_tugas.empty:
+                df_s_temp = df_siswa.copy()
+                df_s_temp["Tingkat"] = df_s_temp["Kelas"].apply(dapatkan_tingkat_kelas)
+                df_s_tingkat_all = df_s_temp[df_s_temp["Tingkat"] == tingkat_pilihan]
+
+                if not df_s_tingkat_all.empty:
+                    df_merge_all = pd.merge(df_s_tingkat_all, df_pengumpulan, on="NIS", how="inner")
+                    if not df_merge_all.empty and "Nilai" in df_merge_all.columns:
+                        df_merge_all["Nilai_Num"] = pd.to_numeric(df_merge_all["Nilai"], errors="coerce").fillna(0.0)
+                        
+                        # Ambil hanya nilai yang > 0 atau sudah dinilai
+                        nilai_valid = df_merge_all[df_merge_all["Nilai_Num"] > 0]["Nilai_Num"]
+                        rata_rata_tingkat = nilai_valid.mean() if not nilai_valid.empty else 0.0
+                        
+                        st.metric(label=f"📈 Rata-Rata Nilai Keseluruhan ({tingkat_pilihan})", value=f"{rata_rata_tingkat:.2f}")
 
             tugas_tersedia = []
             if not df_tugas.empty:
