@@ -67,15 +67,16 @@ def kirim_data_ke_sheet(action, payload):
 
 df_siswa, df_tugas, df_pengumpulan = muat_semua_data_gas()
 
+# Fungsi deteksi tingkat kelas yang lebih fleksibel untuk X, XI, XII, 10, 11, 12
 def dapatkan_tingkat_kelas(nama_kelas: str) -> str:
     kelas_upper = str(nama_kelas).upper().strip()
-    if "XII" in kelas_upper or "12" in kelas_upper:
+    if "XII" in kelas_upper or " 12" in kelas_upper or kelas_upper.startswith("12"):
         return "Kelas XII"
-    elif "XI" in kelas_upper or "11" in kelas_upper:
+    elif "XI" in kelas_upper or " 11" in kelas_upper or kelas_upper.startswith("11"):
         return "Kelas XI"
-    elif "X" in kelas_upper or "10" in kelas_upper:
+    elif "X" in kelas_upper or " 10" in kelas_upper or kelas_upper.startswith("10"):
         return "Kelas X"
-    return "Lainnya"
+    return "Kelas X" # Default fallback agar tidak kosong
 
 st.sidebar.title("📌 Navigasi Portal")
 
@@ -90,7 +91,9 @@ if role == "Siswa":
     if df_siswa.empty or "Nama Siswa" not in df_siswa.columns or len(df_siswa) == 0:
         st.warning("Data siswa belum tersedia atau kosong di Google Sheets. Periksa kembali tab 'Siswa' di Google Spreadsheet Anda.")
     else:
-        list_kelas = sorted([k for k in df_siswa["Kelas"].unique() if str(k).strip() != "" and str(k).lower() != "nan"])
+        # Bersihkan spasi kosong pada kolom kelas
+        df_siswa["Kelas"] = df_siswa["Kelas"].astype(str).str.strip()
+        list_kelas = sorted([k for k in df_siswa["Kelas"].unique() if k != "" and k.lower() != "nan" and k.lower() != "class"])
         
         if not list_kelas:
             st.warning("Belum ada data kelas yang terdaftar di tabel Siswa.")
@@ -109,6 +112,7 @@ if role == "Siswa":
 
                 tugas_tingkat = []
                 if not df_tugas.empty and "Nama Tugas" in df_tugas.columns:
+                    df_tugas["Tingkat"] = df_tugas["Tingkat"].astype(str).str.strip()
                     tugas_tingkat = [t for t in df_tugas[df_tugas["Tingkat"] == tingkat_siswa]["Nama Tugas"].tolist() if str(t).strip() != ""]
 
                 st.markdown("---")
@@ -194,6 +198,7 @@ elif role == "Guru":
 
             tugas_tersedia = []
             if not df_tugas.empty and "Nama Tugas" in df_tugas.columns:
+                df_tugas["Tingkat"] = df_tugas["Tingkat"].astype(str).str.strip()
                 tugas_tersedia = [t for t in df_tugas[df_tugas["Tingkat"] == tingkat_pilihan]["Nama Tugas"].tolist() if str(t).strip() != ""]
 
             if not tugas_tersedia:
