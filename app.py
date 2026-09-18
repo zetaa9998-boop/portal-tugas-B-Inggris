@@ -276,7 +276,7 @@ elif role == "Guru":
                 st.download_button("📥 Unduh CSV", data=csv_data, file_name="Rekap_Nilai.csv", mime="text/csv")
 
         elif menu_guru == "⚙️ Kelola Tugas Per Tingkat":
-            st.header("⚙️ Kelola Tugas Per Tingkat & Hapus Tugas")
+            st.header("⚙️ Kelola Tugas Per Tingkat (Tambah, Edit, Hapus)")
             
             with st.form("form_buat_tugas_tingkat"):
                 target_tingkat = st.selectbox("Target Tingkat:", ["Kelas X", "Kelas XI", "Kelas XII"])
@@ -288,22 +288,50 @@ elif role == "Guru":
                         st.rerun()
 
             st.markdown("---")
-            st.subheader("Daftar Tugas & Aksi Hapus")
+            st.subheader("Daftar Tugas & Aksi (Edit / Hapus)")
             if not df_tugas.empty and "Nama Tugas" in df_tugas.columns:
                 for idx, row in df_tugas.iterrows():
-                    c1, c2, c3 = st.columns([3, 2, 1])
+                    c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
                     c1.text(row.get("Nama Tugas"))
                     c2.text(row.get("Tingkat"))
-                    if c3.button("Hapus", key=f"del_tugas_{idx}"):
+                    
+                    # Tombol Edit Tugas
+                    if c3.button("Edit", key=f"edit_tugas_{idx}"):
+                        st.session_state["edit_mode_tugas"] = row.get("Nama Tugas")
+                        st.session_state["edit_tingkat_tugas"] = row.get("Tingkat")
+                    
+                    # Tombol Hapus Tugas
+                    if c4.button("Hapus", key=f"del_tugas_{idx}"):
                         if kirim_data_ke_sheet("hapus_tugas", {"nama_tugas": row.get("Nama Tugas")}):
                             st.success("Tugas dihapus!")
                             time.sleep(1)
+                            st.rerun()
+
+                # Form Edit Tugas jika tombol Edit diklik
+                if "edit_mode_tugas" in st.session_state:
+                    st.markdown("---")
+                    st.info(f"Edit Tugas: **{st.session_state['edit_mode_tugas']}**")
+                    with st.form("form_edit_tugas_aktif"):
+                        new_nama_tugas = st.text_input("Nama Tugas Baru:", value=st.session_state["edit_mode_tugas"])
+                        new_tingkat_tugas = st.selectbox("Tingkat Baru:", ["Kelas X", "Kelas XI", "Kelas XII"], index=["Kelas X", "Kelas XI", "Kelas XII"].index(st.session_state["edit_tingkat_tugas"]) if st.session_state["edit_tingkat_tugas"] in ["Kelas X", "Kelas XI", "Kelas XII"] else 0)
+                        
+                        col_save, col_cancel = st.columns(2)
+                        if col_save.form_submit_button("Simpan Perubahan"):
+                            # Hapus yang lama lalu simpan yang baru
+                            kirim_data_ke_sheet("hapus_tugas", {"nama_tugas": st.session_state["edit_mode_tugas"]})
+                            if kirim_data_ke_sheet("simpan_tugas", [new_nama_tugas, new_tingkat_tugas]):
+                                del st.session_state["edit_mode_tugas"]
+                                st.success("Tugas berhasil diperbarui!")
+                                time.sleep(1)
+                                st.rerun()
+                        if col_cancel.form_submit_button("Batal"):
+                            del st.session_state["edit_mode_tugas"]
                             st.rerun()
             else:
                 st.info("Belum ada tugas.")
 
         elif menu_guru == "👤 Kelola Data Siswa":
-            st.header("👤 Kelola Data Siswa & Hapus Data")
+            st.header("👤 Kelola Data Siswa (Tambah, Edit, Hapus)")
             
             with st.form("form_tambah_manual_siswa"):
                 m_nis = st.text_input("NIS:")
@@ -316,17 +344,51 @@ elif role == "Guru":
                         st.rerun()
 
             st.markdown("---")
-            st.subheader("Daftar Siswa & Aksi Hapus")
+            st.subheader("Daftar Siswa & Aksi (Edit / Hapus)")
             if not df_siswa.empty and "NIS" in df_siswa.columns:
                 for idx, row in df_siswa.iterrows():
-                    c1, c2, c3, c4 = st.columns([2, 3, 2, 1])
+                    c1, c2, c3, c4, c5 = st.columns([2, 3, 2, 1, 1])
                     c1.text(str(row.get("NIS")))
                     c2.text(str(row.get("Nama Siswa")))
                     c3.text(str(row.get("Kelas")))
-                    if c4.button("Hapus", key=f"del_siswa_{idx}"):
+                    
+                    # Tombol Edit Siswa
+                    if c4.button("Edit", key=f"edit_siswa_{idx}"):
+                        st.session_state["edit_nis"] = str(row.get("NIS"))
+                        st.session_state["edit_nama"] = str(row.get("Nama Siswa"))
+                        st.session_state["edit_kelas"] = str(row.get("Kelas"))
+                    
+                    # Tombol Hapus Siswa
+                    if c5.button("Hapus", key=f"del_siswa_{idx}"):
                         if kirim_data_ke_sheet("hapus_siswa", {"nis": str(row.get("NIS"))}):
                             st.success("Data siswa dihapus!")
                             time.sleep(1)
+                            st.rerun()
+
+                # Form Edit Siswa jika tombol Edit diklik
+                if "edit_nis" in st.session_state:
+                    st.markdown("---")
+                    st.info(f"Edit Data Siswa NIS: **{st.session_state['edit_nis']}**")
+                    with st.form("form_edit_siswa_aktif"):
+                        e_nis = st.text_input("NIS:", value=st.session_state["edit_nis"])
+                        e_nama = st.text_input("Nama Lengkap:", value=st.session_state["edit_nama"])
+                        e_kelas = st.text_input("Kelas:", value=st.session_state["edit_kelas"])
+                        
+                        col_s, col_c = st.columns(2)
+                        if col_s.form_submit_button("Simpan Perubahan"):
+                            # Hapus data lama lalu tambahkan data baru yang sudah diubah
+                            kirim_data_ke_sheet("hapus_siswa", {"nis": st.session_state["edit_nis"]})
+                            if kirim_data_ke_sheet("simpan_siswa", [e_nis.strip(), e_nama.strip(), e_kelas.strip()]):
+                                del st.session_state["edit_nis"]
+                                del st.session_state["edit_nama"]
+                                del st.session_state["edit_kelas"]
+                                st.success("Data siswa berhasil diperbarui!")
+                                time.sleep(1)
+                                st.rerun()
+                        if col_c.form_submit_button("Batal"):
+                            del st.session_state["edit_nis"]
+                            del st.session_state["edit_nama"]
+                            del st.session_state["edit_kelas"]
                             st.rerun()
             else:
                 st.info("Belum ada data siswa.")
