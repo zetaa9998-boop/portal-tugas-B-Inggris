@@ -20,21 +20,15 @@ PASSWORD_GURU = "Guru123!"
 def muat_semua_data_gas():
     try:
         url = st.secrets["WEBAPP_URL"] + "?action=baca_semua"
-        resp = requests.get(url, timeout=20)
+        resp = requests.get(url, timeout=25)
         if resp.status_code == 200:
             data_json = resp.json()
             
             raw_siswa = data_json.get("siswa", [])
-            if len(raw_siswa) > 1:
-                df_siswa = pd.DataFrame(raw_siswa[1:], columns=raw_siswa[0]).astype(str)
-            else:
-                df_siswa = pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
+            df_siswa = pd.DataFrame(raw_siswa[1:], columns=raw_siswa[0]).astype(str) if len(raw_siswa) > 1 else pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
                 
             raw_tugas = data_json.get("tugas", [])
-            if len(raw_tugas) > 1:
-                df_tugas = pd.DataFrame(raw_tugas[1:], columns=raw_tugas[0]).astype(str)
-            else:
-                df_tugas = pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
+            df_tugas = pd.DataFrame(raw_tugas[1:], columns=raw_tugas[0]).astype(str) if len(raw_tugas) > 1 else pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
                 
             raw_pengumpulan = data_json.get("pengumpulan", [])
             if len(raw_pengumpulan) > 1:
@@ -54,20 +48,23 @@ def muat_semua_data_gas():
 def kirim_data_ke_sheet(action, payload):
     try:
         url = st.secrets["WEBAPP_URL"]
-        response = requests.post(url, data=json.dumps({"action": action, "payload": payload}), timeout=90)
+        response = requests.post(url, data=json.dumps({"action": action, "payload": payload}), timeout=120)
         if response.status_code == 200:
             res_json = response.json()
-            return res_json.get("file_url", "sukses") if action == "simpan_pengumpulan" else True
+            if res_json.get("result") == "success":
+                return res_json.get("file_url", "sukses")
+            else:
+                st.error(f"Pesan Error dari Server: {res_json.get('message', 'Kesalahan tidak diketahui')}")
+                return False
         else:
-            st.error(f"Gagal menyimpan! Response: {response.text}")
+            st.error(f"Gagal terhubung! Status Code: {response.status_code}")
             return False
     except Exception as e:
-        st.error(f"Gagal menghubungkan ke Apps Script: {e}")
+        st.error(f"Gagal mengirim data (Koneksi Timeout / File terlalu besar): {e}")
         return False
 
 df_siswa, df_tugas, df_pengumpulan = muat_semua_data_gas()
 
-# Fungsi deteksi tingkat kelas yang lebih fleksibel untuk X, XI, XII, 10, 11, 12
 def dapatkan_tingkat_kelas(nama_kelas: str) -> str:
     kelas_upper = str(nama_kelas).upper().strip()
     if "XII" in kelas_upper or " 12" in kelas_upper or kelas_upper.startswith("12"):
@@ -76,7 +73,7 @@ def dapatkan_tingkat_kelas(nama_kelas: str) -> str:
         return "Kelas XI"
     elif "X" in kelas_upper or " 10" in kelas_upper or kelas_upper.startswith("10"):
         return "Kelas X"
-    return "Kelas X" # Default fallback agar tidak kosong
+    return "Kelas X"
 
 st.sidebar.title("📌 Navigasi Portal")
 
@@ -89,14 +86,13 @@ if role == "Siswa":
     st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas & Video")
     
     if df_siswa.empty or "Nama Siswa" not in df_siswa.columns or len(df_siswa) == 0:
-        st.warning("Data siswa belum tersedia atau kosong di Google Sheets. Periksa kembali tab 'Siswa' di Google Spreadsheet Anda.")
+        st.warning("Data siswa belum tersedia atau kosong di Google Sheets. Periksa tab 'Siswa' Anda.")
     else:
-        # Bersihkan spasi kosong pada kolom kelas
         df_siswa["Kelas"] = df_siswa["Kelas"].astype(str).str.strip()
         list_kelas = sorted([k for k in df_siswa["Kelas"].unique() if k != "" and k.lower() != "nan" and k.lower() != "class"])
         
         if not list_kelas:
-            st.warning("Belum ada data kelas yang terdaftar di tabel Siswa.")
+            st.warning("Belum ada data kelas yang terdaftar.")
         else:
             kelas_siswa = st.selectbox("Pilih Kelas Anda:", list_kelas, key="siswa_pilih_kelas")
             tingkat_siswa = dapatkan_tingkat_kelas(kelas_siswa)
@@ -163,14 +159,14 @@ if role == "Siswa":
                                     "file_name": file_tugas.name,
                                     "file_mime": file_tugas.type
                                 }
-                                with st.spinner("Mengunggah berkas/video ke Google Drive..."):
+                                with st.spinner("Mengunggah berkas/video besar ke Google Drive & menyinkronkan status..."):
                                     hasil = kirim_data_ke_sheet("simpan_pengumpulan", payload)
                                     if hasil:
                                         st.success(f"Berkas **'{file_tugas.name}'** berhasil dikirim & disimpan!")
-                                        time.sleep(1)
+                                        time.sleep(1.5)
                                         st.rerun()
                                     else:
-                                        st.error("Gagal mengunggah file.")
+                                        st.error("Gagal mengunggah file. Pastikan ukuran file tidak melebihi batas kapasitas jaringan.")
                             else:
                                 st.error("Silakan pilih berkas atau video terlebih dahulu.")
 
