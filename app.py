@@ -4,7 +4,6 @@ import requests
 import json
 import base64
 import time
-import io
 import streamlit as st
 import pandas as pd
 
@@ -283,23 +282,24 @@ elif role == "Guru":
                 st.download_button("📥 Unduh CSV", data=csv_data, file_name="Rekap_Nilai.csv", mime="text/csv")
 
         elif menu_guru == "⚙️ Kelola Tugas Per Tingkat":
-            st.header("⚙️ Kelola Tugas Per Tingkat (Satuan & Massal via Excel)")
+            st.header("⚙️ Kelola Tugas Per Tingkat (Satuan, Massal via CSV, & Edit/Hapus)")
             
-            # FITUR TEMPLATE & UPLOAD EXCEL TUGAS
             col_t1, col_t2 = st.columns(2)
             with col_t1:
                 df_tmpl_tugas = pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
                 df_tmpl_tugas.loc[0] = ["Contoh Tugas 1", "Kelas X"]
-                output_tugas = io.BytesIO()
-                with pd.ExcelWriter(output_tugas, engine='xlsxwriter') as writer:
-                    df_tmpl_tugas.to_excel(writer, index=False, sheet_name='Template Tugas')
-                st.download_button("📥 Download Template Excel Tugas", data=output_tugas.getvalue(), file_name="Template_Tugas.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                csv_tmpl_t = df_tmpl_tugas.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Download Template Tugas (CSV)", data=csv_tmpl_t, file_name="Template_Tugas.csv", mime="text/csv")
             
             with col_t2:
-                uploaded_file_tugas = st.file_uploader("📂 Upload Excel Tugas (Banyak Sekaligus)", type=["xlsx", "xls"], key="up_tugas")
+                uploaded_file_tugas = st.file_uploader("📂 Upload File Tugas (CSV/Excel massal)", type=["csv", "xlsx", "xls"], key="up_tugas")
                 if uploaded_file_tugas is not None:
                     try:
-                        df_up_tugas = pd.read_excel(uploaded_file_tugas)
+                        if uploaded_file_tugas.name.endswith('.csv'):
+                            df_up_tugas = pd.read_csv(uploaded_file_tugas)
+                        else:
+                            df_up_tugas = pd.read_excel(uploaded_file_tugas)
+                            
                         if "Nama Tugas" in df_up_tugas.columns and "Tingkat" in df_up_tugas.columns:
                             count_sukses = 0
                             for _, r in df_up_tugas.iterrows():
@@ -312,7 +312,7 @@ elif role == "Guru":
                             time.sleep(1.5)
                             st.rerun()
                         else:
-                            st.error("Format kolom Excel salah! Pastikan ada kolom 'Nama Tugas' dan 'Tingkat'.")
+                            st.error("Format kolom salah! Pastikan ada kolom 'Nama Tugas' dan 'Tingkat'.")
                     except Exception as e:
                         st.error(f"Gagal membaca file: {e}")
 
@@ -372,23 +372,24 @@ elif role == "Guru":
                 st.info("Belum ada tugas.")
 
         elif menu_guru == "👤 Kelola Data Siswa":
-            st.header("👤 Kelola Data Siswa (Satuan & Massal via Excel)")
+            st.header("👤 Kelola Data Siswa (Satuan, Massal via CSV, & Edit/Hapus)")
             
-            # FITUR TEMPLATE & UPLOAD EXCEL SISWA
             col_s1, col_s2 = st.columns(2)
             with col_s1:
                 df_tmpl_siswa = pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
                 df_tmpl_siswa.loc[0] = ["1001", "Contoh Siswa", "X PPLG 1"]
-                output_siswa = io.BytesIO()
-                with pd.ExcelWriter(output_siswa, engine='xlsxwriter') as writer:
-                    df_tmpl_siswa.to_excel(writer, index=False, sheet_name='Template Siswa')
-                st.download_button("📥 Download Template Excel Siswa", data=output_siswa.getvalue(), file_name="Template_Siswa.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                csv_tmpl_s = df_tmpl_siswa.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Download Template Siswa (CSV)", data=csv_tmpl_s, file_name="Template_Siswa.csv", mime="text/csv")
             
             with col_s2:
-                uploaded_file_siswa = st.file_uploader("📂 Upload Excel Siswa (Banyak Sekaligus)", type=["xlsx", "xls"], key="up_siswa")
+                uploaded_file_siswa = st.file_uploader("📂 Upload File Siswa (CSV/Excel massal)", type=["csv", "xlsx", "xls"], key="up_siswa")
                 if uploaded_file_siswa is not None:
                     try:
-                        df_up_siswa = pd.read_excel(uploaded_file_siswa)
+                        if uploaded_file_siswa.name.endswith('.csv'):
+                            df_up_siswa = pd.read_csv(uploaded_file_siswa)
+                        else:
+                            df_up_siswa = pd.read_excel(uploaded_file_siswa)
+                            
                         if "NIS" in df_up_siswa.columns and "Nama Siswa" in df_up_siswa.columns and "Kelas" in df_up_siswa.columns:
                             count_sukses = 0
                             for _, r in df_up_siswa.iterrows():
@@ -402,7 +403,7 @@ elif role == "Guru":
                             time.sleep(1.5)
                             st.rerun()
                         else:
-                            st.error("Format kolom Excel salah! Pastikan ada kolom 'NIS', 'Nama Siswa', dan 'Kelas'.")
+                            st.error("Format kolom salah! Pastikan ada kolom 'NIS', 'Nama Siswa', dan 'Kelas'.")
                     except Exception as e:
                         st.error(f"Gagal membaca file: {e}")
 
