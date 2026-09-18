@@ -13,7 +13,7 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
-# Konfigurasi halaman dan ukuran maksimum upload agar bisa menampung video besar (misal 500MB)
+# Konfigurasi halaman dan ukuran maksimum upload agar bisa menampung video besar
 st.set_page_config(page_title="Aplikasi Pengumpul Tugas SMK", layout="wide")
 
 PASSWORD_GURU = "Guru123!"
@@ -53,7 +53,7 @@ def muat_semua_data_gas():
 def kirim_data_ke_sheet(action, payload):
     try:
         url = st.secrets["WEBAPP_URL"]
-        response = requests.post(url, data=json.dumps({"action": action, "payload": payload}), timeout=60)
+        response = requests.post(url, data=json.dumps({"action": action, "payload": payload}), timeout=90)
         if response.status_code == 200:
             st.cache_data.clear()
             return True
@@ -88,7 +88,7 @@ if st.sidebar.button("🔄 Segarkan Data", use_container_width=True):
 role = st.sidebar.selectbox("Login Sebagai:", ["Siswa", "Guru"], key="main_role_select")
 
 # ===================================================================
-# PORTAL SISWA (Mendukung Upload Video)
+# PORTAL SISWA (Mendukung Upload Video & Status Auto-Update)
 # ===================================================================
 if role == "Siswa":
     st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas & Video")
@@ -130,17 +130,20 @@ if role == "Siswa":
                     if not q_status.empty:
                         status_saat_ini = str(q_status["Status"].values[0]) if "Status" in q_status.columns else "Belum Mengumpulkan"
                         nilai_saat_ini = q_status["Nilai"].values[0] if "Nilai" in q_status.columns else 0.0
+                        link_file_lama = str(q_status["Link File"].values[0]) if "Link File" in q_status.columns else ""
                     else:
                         status_saat_ini = "Belum Mengumpulkan"
                         nilai_saat_ini = 0.0
+                        link_file_lama = ""
 
                     if status_saat_ini == "Sudah Mengumpulkan":
                         st.success(f"✅ Status Pengumpulan: **{status_saat_ini}**")
+                        if link_file_lama and link_file_lama.strip() != "":
+                            st.markdown(f"🔗 [Buka Berkas/Video yang Sudah Diunggah]({link_file_lama})")
                     else:
                         st.warning(f"⏳ Status Pengumpulan: **{status_saat_ini}**")
 
                     with st.form("form_upload_siswa"):
-                        # Format file diperluas mencakup format video populer (mp4, mov, avi, mkv, webm) serta pdf, docx, gambar
                         file_tugas = st.file_uploader(
                             "Pilih Berkas Tugas (Dokumen, Gambar, atau Video):", 
                             type=["pdf", "png", "jpg", "jpeg", "docx", "mp4", "mov", "avi", "mkv", "webm"]
@@ -161,7 +164,7 @@ if role == "Siswa":
                                     "file_name": file_tugas.name,
                                     "file_mime": file_tugas.type
                                 }
-                                with st.spinner("Mengunggah berkas/video ke Google Drive (proses mungkin memakan waktu tergantung ukuran file)..."):
+                                with st.spinner("Mengunggah berkas/video ke Google Drive..."):
                                     if kirim_data_ke_sheet("simpan_pengumpulan", payload):
                                         st.success(f"Berkas **'{file_tugas.name}'** berhasil dikirim & disimpan!")
                                         time.sleep(1)
@@ -170,7 +173,7 @@ if role == "Siswa":
                                 st.error("Silakan pilih berkas atau video terlebih dahulu.")
 
 # ===================================================================
-# PORTAL GURU (Sama seperti sebelumnya, data aman 100%)
+# PORTAL GURU (Pengelolaan, Penilaian, & Rekap)
 # ===================================================================
 elif role == "Guru":
     st.title("👨‍🏫 Portal Guru - Pengelolaan & Penilaian")
@@ -287,7 +290,6 @@ elif role == "Guru":
 
         elif menu_guru == "📈 Rekap Global & Rata-Rata Nilai":
             st.header("📈 Rekapitulasi Nilai Keseluruhan & Kolom Rata-Rata")
-            st.info("Tabel menampilkan seluruh nilai siswa beserta kolom rata-rata nilai di bagian pinggir.")
 
             if df_siswa.empty:
                 st.warning("Belum ada data siswa.")
@@ -475,7 +477,6 @@ elif role == "Guru":
 
                     if list_siswa_label:
                         siswa_pilihan_label = st.selectbox("Pilih Siswa yang Akan Dihapus:", list_siswa_label, key="select_hapus_siswa_v8")
-                        
                         nis_pilihan = siswa_pilihan_label.split(" - ")[0].strip()
                         
                         if st.button("🔴 Hapus Siswa Ini", type="primary"):
