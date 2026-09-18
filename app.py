@@ -37,7 +37,7 @@ def muat_semua_data_gas():
             if len(raw_pengumpulan) > 1:
                 cols = raw_pengumpulan[0]
                 df_p = pd.DataFrame(raw_pengumpulan[1:], columns=cols).astype(str)
-                if len(cols) < 5:
+                if "Link File" not in df_p.columns:
                     df_p["Link File"] = ""
             else:
                 df_p = pd.DataFrame(columns=["NIS", "Nama Tugas", "Status", "Nilai", "Link File"])
@@ -53,17 +53,14 @@ def kirim_data_ke_sheet(action, payload):
         url = st.secrets["WEBAPP_URL"]
         response = requests.post(url, data=json.dumps({"action": action, "payload": payload}), timeout=90)
         if response.status_code == 200:
-            return True
+            res_json = response.json()
+            return res_json.get("file_url", "") if action == "simpan_pengumpulan" else True
         else:
             st.error(f"Gagal menyimpan! Response: {response.text}")
             return False
     except Exception as e:
         st.error(f"Gagal menghubungkan ke Apps Script: {e}")
         return False
-
-# Inisialisasi Session State agar status langsung sinkron
-if "trigger_refresh" not in st.session_state:
-    st.session_state.trigger_refresh = 0
 
 # Muat data segar
 df_siswa, df_tugas, df_pengumpulan = muat_semua_data_gas()
@@ -124,16 +121,12 @@ if role == "Siswa":
                 else:
                     tugas_terpilih = st.selectbox("Pilih Tugas yang Ingin Dikumpulkan:", tugas_tingkat, key="siswa_pilih_tugas")
 
-                    # Cek status langsung dari dataframe atau session state lokal
+                    # Ambil data pengumpulan dari DataFrame
                     q_status = pd.DataFrame()
                     if not df_pengumpulan.empty and "NIS" in df_pengumpulan.columns and "Nama Tugas" in df_pengumpulan.columns:
                         q_status = df_pengumpulan[(df_pengumpulan["NIS"].astype(str).str.strip() == str(nis_siswa).strip()) & 
                                                   (df_pengumpulan["Nama Tugas"].astype(str).str.strip() == str(tugas_terpilih).strip())]
                     
-                    # Cek juga apakah baru saja diupload di sesi ini
-                    session_key_status = f"{nis_siswa}_{tugas_terpilih}_status"
-                    session_key_link = f"{nis_siswa}_{tugas_terpilih}_link"
-
                     if not q_status.empty:
                         status_saat_ini = str(q_status["Status"].values[0]).strip()
                         nilai_saat_ini = q_status["Nilai"].values[0] if "Nilai" in q_status.columns else 0.0
@@ -143,17 +136,11 @@ if role == "Siswa":
                         nilai_saat_ini = 0.0
                         link_file_lama = ""
 
-                    # Jika di session state lokal sudah tercatat sukses, paksa tampilkan status sudah mengumpulkan
-                    if st.session_state.get(session_key_status) == "Sudah Mengumpulkan":
-                        status_saat_ini = "Sudah Mengumpulkan"
-                        if st.session_state.get(session_key_link):
-                            link_file_lama = st.session_state.get(session_key_link)
-
-                    # Tampilkan Status Dinamis
+                    # Tampilkan Status & Link File
                     if status_saat_ini.lower() == "sudah mengumpulkan":
                         st.success("✅ Status Pengumpulan: **Sudah Mengumpulkan**")
-                        if link_file_lama and link_file_lama.strip() != "" and not link_file_lama.startswith("Gagal"):
-                            st.markdown(f"🔗 [Buka Berkas/Video yang Telah Diunggah]({link_file_lama})")
+                        if link_file_lama and link_file_lama.strip() != "" and link_file_lama.startswith("http"):
+                            st.markdown(f"🔗 **[Buka Berkas/Video yang Telah Diunggah]({link_file_lama})**")
                     else:
                         st.warning("⏳ Status Pengumpulan: **Belum Mengumpulkan**")
 
@@ -178,13 +165,14 @@ if role == "Siswa":
                                     "file_name": file_tugas.name,
                                     "file_mime": file_tugas.type
                                 }
-                                with st.spinner("Mengunggah berkas/video ke Google Drive & memperbarui status..."):
-                                    if kirim_data_ke_sheet("simpan_pengumpulan", payload):
-                                        # Simpan status instan ke session state agar langsung berubah tanpa menunggu delay Google Sheets
-                                        st.session_state[session_key_status] = "Sudah Mengumpulkan"
+                                with st.spinner("Mengunggah berkas/video ke Google Drive & menyinkronkan link..."):
+                                    hasil_link = kirim_data_ke_sheet("simpan_pengumpulan", payload)
+                                    if hasil_link:
                                         st.success(f"Berkas **'{file_tugas.name}'** berhasil dikirim & disimpan!")
                                         time.sleep(1)
                                         st.rerun()
+                                    else:
+                                        st.error("Gagal mengunggah file ke Google Drive.")
                             else:
                                 st.error("Silakan pilih berkas atau video terlebih dahulu.")
 
