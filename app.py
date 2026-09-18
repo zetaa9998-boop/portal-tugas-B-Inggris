@@ -18,7 +18,7 @@ st.set_page_config(page_title="Aplikasi Pengumpul Tugas SMK", layout="wide")
 PASSWORD_GURU = "Guru123!"
 
 # ===================================================================
-# FUNGSI MEMBACA DATA DARI GOOGLE APPS SCRIPT (Tanpa Cache Tetap/Live)
+# FUNGSI MEMBACA DATA DARI GOOGLE APPS SCRIPT
 # ===================================================================
 def muat_semua_data_gas():
     try:
@@ -61,7 +61,11 @@ def kirim_data_ke_sheet(action, payload):
         st.error(f"Gagal menghubungkan ke Apps Script: {e}")
         return False
 
-# Muat data segar secara langsung
+# Inisialisasi Session State agar status langsung sinkron
+if "trigger_refresh" not in st.session_state:
+    st.session_state.trigger_refresh = 0
+
+# Muat data segar
 df_siswa, df_tugas, df_pengumpulan = muat_semua_data_gas()
 
 def dapatkan_tingkat_kelas(nama_kelas: str) -> str:
@@ -120,12 +124,16 @@ if role == "Siswa":
                 else:
                     tugas_terpilih = st.selectbox("Pilih Tugas yang Ingin Dikumpulkan:", tugas_tingkat, key="siswa_pilih_tugas")
 
-                    # Pengecekan status langsung dari dataframe pengumpulan terbaru
+                    # Cek status langsung dari dataframe atau session state lokal
                     q_status = pd.DataFrame()
                     if not df_pengumpulan.empty and "NIS" in df_pengumpulan.columns and "Nama Tugas" in df_pengumpulan.columns:
                         q_status = df_pengumpulan[(df_pengumpulan["NIS"].astype(str).str.strip() == str(nis_siswa).strip()) & 
                                                   (df_pengumpulan["Nama Tugas"].astype(str).str.strip() == str(tugas_terpilih).strip())]
                     
+                    # Cek juga apakah baru saja diupload di sesi ini
+                    session_key_status = f"{nis_siswa}_{tugas_terpilih}_status"
+                    session_key_link = f"{nis_siswa}_{tugas_terpilih}_link"
+
                     if not q_status.empty:
                         status_saat_ini = str(q_status["Status"].values[0]).strip()
                         nilai_saat_ini = q_status["Nilai"].values[0] if "Nilai" in q_status.columns else 0.0
@@ -135,7 +143,13 @@ if role == "Siswa":
                         nilai_saat_ini = 0.0
                         link_file_lama = ""
 
-                    # Tampilkan Status Secara Dinamis
+                    # Jika di session state lokal sudah tercatat sukses, paksa tampilkan status sudah mengumpulkan
+                    if st.session_state.get(session_key_status) == "Sudah Mengumpulkan":
+                        status_saat_ini = "Sudah Mengumpulkan"
+                        if st.session_state.get(session_key_link):
+                            link_file_lama = st.session_state.get(session_key_link)
+
+                    # Tampilkan Status Dinamis
                     if status_saat_ini.lower() == "sudah mengumpulkan":
                         st.success("✅ Status Pengumpulan: **Sudah Mengumpulkan**")
                         if link_file_lama and link_file_lama.strip() != "" and not link_file_lama.startswith("Gagal"):
@@ -166,9 +180,11 @@ if role == "Siswa":
                                 }
                                 with st.spinner("Mengunggah berkas/video ke Google Drive & memperbarui status..."):
                                     if kirim_data_ke_sheet("simpan_pengumpulan", payload):
+                                        # Simpan status instan ke session state agar langsung berubah tanpa menunggu delay Google Sheets
+                                        st.session_state[session_key_status] = "Sudah Mengumpulkan"
                                         st.success(f"Berkas **'{file_tugas.name}'** berhasil dikirim & disimpan!")
                                         time.sleep(1)
-                                        st.rerun() # Memuat ulang halaman untuk memperbarui status di atas secara instan
+                                        st.rerun()
                             else:
                                 st.error("Silakan pilih berkas atau video terlebih dahulu.")
 
