@@ -24,21 +24,12 @@ def muat_semua_data_gas():
         if resp.status_code == 200:
             data_json = resp.json()
             
-            # Parsing Siswa dengan Pengaman
             raw_siswa = data_json.get("siswa", [])
-            if len(raw_siswa) > 1:
-                df_siswa = pd.DataFrame(raw_siswa[1:], columns=raw_siswa[0]).astype(str)
-            else:
-                df_siswa = pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
+            df_siswa = pd.DataFrame(raw_siswa[1:], columns=raw_siswa[0]).astype(str) if len(raw_siswa) > 1 else pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
                 
-            # Parsing Tugas dengan Pengaman
             raw_tugas = data_json.get("tugas", [])
-            if len(raw_tugas) > 1:
-                df_tugas = pd.DataFrame(raw_tugas[1:], columns=raw_tugas[0]).astype(str)
-            else:
-                df_tugas = pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
+            df_tugas = pd.DataFrame(raw_tugas[1:], columns=raw_tugas[0]).astype(str) if len(raw_tugas) > 1 else pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
                 
-            # Parsing Pengumpulan dengan Pengaman
             raw_pengumpulan = data_json.get("pengumpulan", [])
             if len(raw_pengumpulan) > 1:
                 df_p = pd.DataFrame(raw_pengumpulan[1:], columns=raw_pengumpulan[0]).astype(str)
@@ -71,6 +62,7 @@ def kirim_data_ke_sheet(action, payload):
         st.error(f"Gagal mengirim data: {e}")
         return False
 
+# Inisialisasi Data
 df_siswa, df_tugas, df_pengumpulan = muat_semua_data_gas()
 
 def dapatkan_tingkat_kelas(nama_kelas: str) -> str:
@@ -94,13 +86,13 @@ if role == "Siswa":
     st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas & Video")
     
     if df_siswa.empty or "Nama Siswa" not in df_siswa.columns or len(df_siswa) == 0:
-        st.warning("Data siswa masih kosong atau belum terbaca dari Google Sheets. Periksa kembali tab 'Siswa' di Spreadsheet Anda.")
+        st.warning("Data siswa masih kosong atau belum terbaca dari Google Sheets.")
     else:
         df_siswa["Kelas"] = df_siswa["Kelas"].astype(str).str.strip()
         list_kelas = sorted([k for k in df_siswa["Kelas"].unique() if k != "" and k.lower() != "nan" and k.lower() != "class"])
         
         if not list_kelas:
-            st.warning("Belum ada data kelas yang terdaftar di kolom 'Kelas'.")
+            st.warning("Belum ada data kelas terdaftar.")
         else:
             kelas_siswa = st.selectbox("Pilih Kelas Anda:", list_kelas, key="siswa_pilih_kelas")
             tingkat_siswa = dapatkan_tingkat_kelas(kelas_siswa)
@@ -165,10 +157,10 @@ if role == "Siswa":
                                     "file_name": file_tugas.name,
                                     "file_mime": file_tugas.type
                                 }
-                                with st.spinner("Mengunggah berkas ke Drive..."):
+                                with st.spinner("Mengunggah berkas ke Drive & memperbarui link..."):
                                     hasil = kirim_data_ke_sheet("simpan_pengumpulan", payload)
                                     if hasil:
-                                        st.success("Berkas berhasil dikirim & disimpan!")
+                                        st.success("Berkas berhasil dikirim & link tersimpan!")
                                         time.sleep(1.5)
                                         st.rerun()
                             else:
@@ -240,7 +232,7 @@ elif role == "Guru":
                     st.dataframe(
                         df_rekap[["NIS", "Nama Siswa", "Kelas", "Status", "Nilai", "Link File"]],
                         use_container_width=True,
-                        column_config={"Link File": st.column_config.LinkColumn("Berkas Tugas")}
+                        column_config={"Link File": st.column_config.LinkColumn("Berkas / Video Tugas")}
                     )
 
                     st.markdown("---")
@@ -284,18 +276,35 @@ elif role == "Guru":
                 st.download_button("📥 Unduh CSV", data=csv_data, file_name="Rekap_Nilai.csv", mime="text/csv")
 
         elif menu_guru == "⚙️ Kelola Tugas Per Tingkat":
-            st.header("⚙️ Kelola Tugas Per Tingkat")
+            st.header("⚙️ Kelola Tugas Per Tingkat & Hapus Tugas")
+            
             with st.form("form_buat_tugas_tingkat"):
                 target_tingkat = st.selectbox("Target Tingkat:", ["Kelas X", "Kelas XI", "Kelas XII"])
-                nama_tugas_baru = st.text_input("Nama Tugas:")
+                nama_tugas_baru = st.text_input("Nama Tugas Baru:")
                 if st.form_submit_button("Buat Tugas"):
                     if nama_tugas_baru and kirim_data_ke_sheet("simpan_tugas", [nama_tugas_baru, target_tingkat]):
                         st.success("Tugas berhasil disimpan!")
                         time.sleep(1)
                         st.rerun()
 
+            st.markdown("---")
+            st.subheader("Daftar Tugas & Aksi Hapus")
+            if not df_tugas.empty and "Nama Tugas" in df_tugas.columns:
+                for idx, row in df_tugas.iterrows():
+                    c1, c2, c3 = st.columns([3, 2, 1])
+                    c1.text(row.get("Nama Tugas"))
+                    c2.text(row.get("Tingkat"))
+                    if c3.button("Hapus", key=f"del_tugas_{idx}"):
+                        if kirim_data_ke_sheet("hapus_tugas", {"nama_tugas": row.get("Nama Tugas")}):
+                            st.success("Tugas dihapus!")
+                            time.sleep(1)
+                            st.rerun()
+            else:
+                st.info("Belum ada tugas.")
+
         elif menu_guru == "👤 Kelola Data Siswa":
-            st.header("👤 Kelola Data Siswa")
+            st.header("👤 Kelola Data Siswa & Hapus Data")
+            
             with st.form("form_tambah_manual_siswa"):
                 m_nis = st.text_input("NIS:")
                 m_nama = st.text_input("Nama Lengkap:")
@@ -305,3 +314,19 @@ elif role == "Guru":
                         st.success("Siswa tersimpan!")
                         time.sleep(1)
                         st.rerun()
+
+            st.markdown("---")
+            st.subheader("Daftar Siswa & Aksi Hapus")
+            if not df_siswa.empty and "NIS" in df_siswa.columns:
+                for idx, row in df_siswa.iterrows():
+                    c1, c2, c3, c4 = st.columns([2, 3, 2, 1])
+                    c1.text(str(row.get("NIS")))
+                    c2.text(str(row.get("Nama Siswa")))
+                    c3.text(str(row.get("Kelas")))
+                    if c4.button("Hapus", key=f"del_siswa_{idx}"):
+                        if kirim_data_ke_sheet("hapus_siswa", {"nis": str(row.get("NIS"))}):
+                            st.success("Data siswa dihapus!")
+                            time.sleep(1)
+                            st.rerun()
+            else:
+                st.info("Belum ada data siswa.")
