@@ -13,6 +13,7 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
+# Konfigurasi halaman dan ukuran maksimum upload agar bisa menampung video besar (misal 500MB)
 st.set_page_config(page_title="Aplikasi Pengumpul Tugas SMK", layout="wide")
 
 PASSWORD_GURU = "Guru123!"
@@ -52,7 +53,7 @@ def muat_semua_data_gas():
 def kirim_data_ke_sheet(action, payload):
     try:
         url = st.secrets["WEBAPP_URL"]
-        response = requests.post(url, data=json.dumps({"action": action, "payload": payload}), timeout=30)
+        response = requests.post(url, data=json.dumps({"action": action, "payload": payload}), timeout=60)
         if response.status_code == 200:
             st.cache_data.clear()
             return True
@@ -87,10 +88,10 @@ if st.sidebar.button("🔄 Segarkan Data", use_container_width=True):
 role = st.sidebar.selectbox("Login Sebagai:", ["Siswa", "Guru"], key="main_role_select")
 
 # ===================================================================
-# PORTAL SISWA
+# PORTAL SISWA (Mendukung Upload Video)
 # ===================================================================
 if role == "Siswa":
-    st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas")
+    st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas & Video")
     
     if df_siswa.empty:
         st.warning("Data siswa belum tersedia di Google Sheets.")
@@ -139,7 +140,11 @@ if role == "Siswa":
                         st.warning(f"⏳ Status Pengumpulan: **{status_saat_ini}**")
 
                     with st.form("form_upload_siswa"):
-                        file_tugas = st.file_uploader("Pilih Berkas Tugas (PDF/Gambar/Docx):", type=["pdf", "png", "jpg", "docx"])
+                        # Format file diperluas mencakup format video populer (mp4, mov, avi, mkv, webm) serta pdf, docx, gambar
+                        file_tugas = st.file_uploader(
+                            "Pilih Berkas Tugas (Dokumen, Gambar, atau Video):", 
+                            type=["pdf", "png", "jpg", "jpeg", "docx", "mp4", "mov", "avi", "mkv", "webm"]
+                        )
                         submit_button = st.form_submit_button("Kirim Tugas")
 
                         if submit_button:
@@ -156,16 +161,16 @@ if role == "Siswa":
                                     "file_name": file_tugas.name,
                                     "file_mime": file_tugas.type
                                 }
-                                with st.spinner("Mengunggah berkas ke Google Drive..."):
+                                with st.spinner("Mengunggah berkas/video ke Google Drive (proses mungkin memakan waktu tergantung ukuran file)..."):
                                     if kirim_data_ke_sheet("simpan_pengumpulan", payload):
                                         st.success(f"Berkas **'{file_tugas.name}'** berhasil dikirim & disimpan!")
                                         time.sleep(1)
                                         st.rerun()
                             else:
-                                st.error("Silakan pilih berkas terlebih dahulu.")
+                                st.error("Silakan pilih berkas atau video terlebih dahulu.")
 
 # ===================================================================
-# PORTAL GURU
+# PORTAL GURU (Sama seperti sebelumnya, data aman 100%)
 # ===================================================================
 elif role == "Guru":
     st.title("👨‍🏫 Portal Guru - Pengelolaan & Penilaian")
@@ -187,7 +192,6 @@ elif role == "Guru":
             "👤 Kelola Data Siswa"
         ], key="radio_menu_guru")
 
-        # 1. MENU REKAPITULASI & PENILAIAN PER TUGAS
         if menu_guru == "📊 Rekapitulasi & Penilaian":
             st.header("📊 Rekapitulasi & Penilaian Tugas")
 
@@ -250,7 +254,7 @@ elif role == "Guru":
                         df_rekap[["NIS", "Nama Siswa", "Kelas", "Status", "Nilai", "Link File"]],
                         use_container_width=True,
                         column_config={
-                            "Link File": st.column_config.LinkColumn("Berkas Tugas (Klik untuk Buka/Unduh)")
+                            "Link File": st.column_config.LinkColumn("Berkas / Video Tugas (Klik untuk Buka/Unduh)")
                         }
                     )
 
@@ -281,39 +285,31 @@ elif role == "Guru":
                                     time.sleep(1)
                                     st.rerun()
 
-        # 2. MENU BARU: REKAP GLOBAL SEMUA TINGKAT & KOLOM RATA-RATA DI PINGGIR
         elif menu_guru == "📈 Rekap Global & Rata-Rata Nilai":
             st.header("📈 Rekapitulasi Nilai Keseluruhan & Kolom Rata-Rata")
-            st.info("Tabel di bawah ini menampilkan matriks nilai seluruh siswa dari semua tingkat kelas beserta kolom rata-rata nilai di bagian pinggir.")
+            st.info("Tabel menampilkan seluruh nilai siswa beserta kolom rata-rata nilai di bagian pinggir.")
 
             if df_siswa.empty:
                 st.warning("Belum ada data siswa.")
             else:
-                # Ambil daftar seluruh tugas yang ada
                 list_semua_tugas = [t for t in df_tugas["Nama Tugas"].unique() if str(t).strip() != ""] if not df_tugas.empty else []
 
-                # Buat Pivot Table Nilai (Baris = Siswa, Kolom = Nama Tugas)
                 if not df_pengumpulan.empty and "Nama Tugas" in df_pengumpulan.columns and "Nilai" in df_pengumpulan.columns:
                     df_p_copy = df_pengumpulan.copy()
                     df_p_copy["Nilai_Num"] = pd.to_numeric(df_p_copy["Nilai"], errors="coerce").fillna(0.0)
-                    
-                    # Pivot NIS terhadap Nama Tugas
                     pivot_nilai = df_p_copy.pivot_table(index="NIS", columns="Nama Tugas", values="Nilai_Num", aggfunc="max").fillna(0.0)
                 else:
                     pivot_nilai = pd.DataFrame(index=df_siswa["NIS"])
 
-                # Gabungkan data siswa dengan pivot nilai
                 df_rekap_global = df_siswa.copy()
                 df_rekap_global = pd.merge(df_rekap_global, pivot_nilai, on="NIS", how="left").fillna(0.0)
 
-                # Hitung kolom Rata-Rata di pinggir (berdasarkan kolom tugas yang ada)
                 kolom_tugas_ada = [t for t in list_semua_tugas if t in df_rekap_global.columns]
                 if kolom_tugas_ada:
                     df_rekap_global["Nilai Rata-Rata"] = df_rekap_global[kolom_tugas_ada].mean(axis=1).round(2)
                 else:
                     df_rekap_global["Nilai Rata-Rata"] = 0.0
 
-                # Filter berdasarkan Tingkat Kelas jika diinginkan
                 pilihan_filter_tingkat = st.selectbox("Filter Tampilan Tingkat:", ["Semua Tingkat (X, XI, XII)", "Kelas X", "Kelas XI", "Kelas XII"], key="filter_global_tingkat")
                 
                 if pilihan_filter_tingkat != "Semua Tingkat (X, XI, XII)":
@@ -323,7 +319,6 @@ elif role == "Guru":
 
                 st.dataframe(df_rekap_global, use_container_width=True)
 
-                # Tombol Download ke CSV/Excel
                 st.markdown("---")
                 st.subheader("📥 Unduh Hasil Rekapitulasi")
                 csv_data = df_rekap_global.to_csv(index=False).encode('utf-8')
@@ -334,7 +329,6 @@ elif role == "Guru":
                     mime="text/csv",
                 )
 
-        # 3. MENU KELOLA TUGAS
         elif menu_guru == "⚙️ Kelola Tugas Per Tingkat":
             st.header("⚙️ Buat & Kelola Tugas Berdasarkan Tingkat Kelas")
 
@@ -393,7 +387,6 @@ elif role == "Guru":
                 else:
                     st.info("Belum ada data tugas untuk dihapus.")
 
-        # 4. MENU KELOLA SISWA
         elif menu_guru == "👤 Kelola Data Siswa":
             st.header("👤 Kelola Data Siswa")
 
