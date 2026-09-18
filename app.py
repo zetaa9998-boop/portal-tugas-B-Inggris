@@ -20,7 +20,7 @@ PASSWORD_GURU = "Guru123!"
 def muat_semua_data_gas():
     try:
         url = st.secrets["WEBAPP_URL"] + "?action=baca_semua"
-        resp = requests.get(url, timeout=25)
+        resp = requests.get(url, timeout=30)
         if resp.status_code == 200:
             data_json = resp.json()
             
@@ -41,9 +41,9 @@ def muat_semua_data_gas():
                 
             return df_siswa.fillna(""), df_tugas.fillna(""), df_p.fillna("")
         else:
-            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+            return pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"]), pd.DataFrame(columns=["Nama Tugas", "Tingkat"]), pd.DataFrame(columns=["NIS", "Nama Tugas", "Status", "Nilai", "Link File"])
     except Exception:
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"]), pd.DataFrame(columns=["Nama Tugas", "Tingkat"]), pd.DataFrame(columns=["NIS", "Nama Tugas", "Status", "Nilai", "Link File"])
 
 def kirim_data_ke_sheet(action, payload):
     try:
@@ -60,7 +60,7 @@ def kirim_data_ke_sheet(action, payload):
             st.error(f"Gagal terhubung! Status Code: {response.status_code}")
             return False
     except Exception as e:
-        st.error(f"Gagal mengirim data (Koneksi Timeout / File terlalu besar): {e}")
+        st.error(f"Gagal mengirim data (Timeout/File terlalu besar): {e}")
         return False
 
 df_siswa, df_tugas, df_pengumpulan = muat_semua_data_gas()
@@ -86,7 +86,7 @@ if role == "Siswa":
     st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas & Video")
     
     if df_siswa.empty or "Nama Siswa" not in df_siswa.columns or len(df_siswa) == 0:
-        st.warning("Data siswa belum tersedia atau kosong di Google Sheets. Periksa tab 'Siswa' Anda.")
+        st.warning("Data siswa belum tersedia atau kosong di Google Sheets. Pastikan tab bernama 'Siswa' sudah terisi dengan benar.")
     else:
         df_siswa["Kelas"] = df_siswa["Kelas"].astype(str).str.strip()
         list_kelas = sorted([k for k in df_siswa["Kelas"].unique() if k != "" and k.lower() != "nan" and k.lower() != "class"])
@@ -159,14 +159,14 @@ if role == "Siswa":
                                     "file_name": file_tugas.name,
                                     "file_mime": file_tugas.type
                                 }
-                                with st.spinner("Mengunggah berkas/video besar ke Google Drive & menyinkronkan status..."):
+                                with st.spinner("Mengunggah berkas/video ke Google Drive & memperbarui status..."):
                                     hasil = kirim_data_ke_sheet("simpan_pengumpulan", payload)
                                     if hasil:
                                         st.success(f"Berkas **'{file_tugas.name}'** berhasil dikirim & disimpan!")
                                         time.sleep(1.5)
                                         st.rerun()
                                     else:
-                                        st.error("Gagal mengunggah file. Pastikan ukuran file tidak melebihi batas kapasitas jaringan.")
+                                        st.error("Gagal mengunggah file. Periksa koneksi atau kapasitas Google Drive.")
                             else:
                                 st.error("Silakan pilih berkas atau video terlebih dahulu.")
 
