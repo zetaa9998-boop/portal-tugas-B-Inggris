@@ -17,9 +17,11 @@ st.set_page_config(page_title="Aplikasi Pengumpul Tugas SMK", layout="wide")
 
 PASSWORD_GURU = "Guru123!"
 
-def muat_semua_data_gas():
+# Menggunakan cache agar perpindahan menu dan tombol tidak lambat
+@st.cache_data(ttl=60)
+def muat_semua_data_gas_cached(url_web_app):
     try:
-        url = st.secrets["WEBAPP_URL"] + "?action=baca_semua"
+        url = url_web_app + "?action=baca_semua"
         resp = requests.get(url, timeout=30)
         if resp.status_code == 200:
             data_json = resp.json()
@@ -44,6 +46,10 @@ def muat_semua_data_gas():
     except Exception:
         return pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"]), pd.DataFrame(columns=["Nama Tugas", "Tingkat"]), pd.DataFrame(columns=["NIS", "Nama Tugas", "Status", "Nilai", "Link File"])
 
+def muat_semua_data_gas():
+    url_wa = st.secrets["WEBAPP_URL"]
+    return muat_semua_data_gas_cached(url_wa)
+
 def kirim_data_ke_sheet(action, payload):
     try:
         url = st.secrets["WEBAPP_URL"]
@@ -51,6 +57,8 @@ def kirim_data_ke_sheet(action, payload):
         if response.status_code == 200:
             res_json = response.json()
             if res_json.get("result") == "success":
+                # Bersihkan cache agar data terbaru langsung termuat setelah aksi simpan/hapus
+                st.cache_data.clear()
                 return res_json.get("file_url", "sukses")
             else:
                 st.error(f"Server Error: {res_json.get('message', 'Kesalahan tidak diketahui')}")
@@ -78,6 +86,7 @@ def dapatkan_tingkat_kelas(nama_kelas: str) -> str:
 st.sidebar.title("📌 Navigasi Portal")
 
 if st.sidebar.button("🔄 Segarkan Data", use_container_width=True):
+    st.cache_data.clear()
     st.rerun()
 
 role = st.sidebar.selectbox("Login Sebagai:", ["Siswa", "Guru"], key="main_role_select")
