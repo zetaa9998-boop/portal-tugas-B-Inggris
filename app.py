@@ -13,7 +13,7 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
-# Konfigurasi halaman dan ukuran maksimum upload agar bisa menampung video besar
+# Konfigurasi halaman dan ukuran maksimum upload
 st.set_page_config(page_title="Aplikasi Pengumpul Tugas SMK", layout="wide")
 
 PASSWORD_GURU = "Guru123!"
@@ -21,7 +21,7 @@ PASSWORD_GURU = "Guru123!"
 # ===================================================================
 # FUNGSI MEMBACA DATA DARI GOOGLE APPS SCRIPT
 # ===================================================================
-@st.cache_data(ttl=2)
+@st.cache_data(ttl=1)
 def muat_semua_data_gas():
     try:
         url = st.secrets["WEBAPP_URL"] + "?action=baca_semua"
@@ -55,7 +55,7 @@ def kirim_data_ke_sheet(action, payload):
         url = st.secrets["WEBAPP_URL"]
         response = requests.post(url, data=json.dumps({"action": action, "payload": payload}), timeout=90)
         if response.status_code == 200:
-            st.cache_data.clear()
+            st.cache_data.clear() # Bersihkan cache agar data terbaru langsung terambil
             return True
         else:
             st.error(f"Gagal menyimpan! Response: {response.text}")
@@ -88,7 +88,7 @@ if st.sidebar.button("🔄 Segarkan Data", use_container_width=True):
 role = st.sidebar.selectbox("Login Sebagai:", ["Siswa", "Guru"], key="main_role_select")
 
 # ===================================================================
-# PORTAL SISWA (Mendukung Upload Video & Status Auto-Update)
+# PORTAL SISWA (Perbaikan Sinkronisasi Status & Tampilan File)
 # ===================================================================
 if role == "Siswa":
     st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas & Video")
@@ -123,8 +123,9 @@ if role == "Siswa":
                 else:
                     tugas_terpilih = st.selectbox("Pilih Tugas yang Ingin Dikumpulkan:", tugas_tingkat, key="siswa_pilih_tugas")
 
+                    # Ambil data pengumpulan terbaru langsung dari dataframe yang sudah dimuat ulang
                     q_status = pd.DataFrame()
-                    if not df_pengumpulan.empty and len(df_pengumpulan.columns) >= 2:
+                    if not df_pengumpulan.empty and "NIS" in df_pengumpulan.columns and "Nama Tugas" in df_pengumpulan.columns:
                         q_status = df_pengumpulan[(df_pengumpulan["NIS"] == nis_siswa) & (df_pengumpulan["Nama Tugas"] == tugas_terpilih)]
                     
                     if not q_status.empty:
@@ -136,12 +137,13 @@ if role == "Siswa":
                         nilai_saat_ini = 0.0
                         link_file_lama = ""
 
-                    if status_saat_ini == "Sudah Mengumpulkan":
-                        st.success(f"✅ Status Pengumpulan: **{status_saat_ini}**")
-                        if link_file_lama and link_file_lama.strip() != "":
-                            st.markdown(f"🔗 [Buka Berkas/Video yang Sudah Diunggah]({link_file_lama})")
+                    # Tampilkan status secara akurat berdasarkan database
+                    if status_saat_ini.strip().lower() == "sudah mengumpulkan":
+                        st.success("✅ Status Pengumpulan: **Sudah Mengumpulkan**")
+                        if link_file_lama and link_file_lama.strip() != "" and not link_file_lama.startswith("Gagal"):
+                            st.markdown(f"🔗 [Buka Berkas/Video yang Telah Diunggah]({link_file_lama})")
                     else:
-                        st.warning(f"⏳ Status Pengumpulan: **{status_saat_ini}**")
+                        st.warning("⏳ Status Pengumpulan: **Belum Mengumpulkan**")
 
                     with st.form("form_upload_siswa"):
                         file_tugas = st.file_uploader(
@@ -164,16 +166,17 @@ if role == "Siswa":
                                     "file_name": file_tugas.name,
                                     "file_mime": file_tugas.type
                                 }
-                                with st.spinner("Mengunggah berkas/video ke Google Drive..."):
+                                with st.spinner("Mengunggah berkas/video ke Google Drive & memperbarui status..."):
                                     if kirim_data_ke_sheet("simpan_pengumpulan", payload):
                                         st.success(f"Berkas **'{file_tugas.name}'** berhasil dikirim & disimpan!")
-                                        time.sleep(1)
-                                        st.rerun()
+                                        st.cache_data.clear() # Kosongkan cache agar status langsung berubah
+                                        time.sleep(1.5)
+                                        st.rerun() # Refresh otomatis agar status di atas berubah jadi hijau
                             else:
                                 st.error("Silakan pilih berkas atau video terlebih dahulu.")
 
 # ===================================================================
-# PORTAL GURU (Pengelolaan, Penilaian, & Rekap)
+# PORTAL GURU (Pengelolaan, Penilaian, & Rekap Global)
 # ===================================================================
 elif role == "Guru":
     st.title("👨‍🏫 Portal Guru - Pengelolaan & Penilaian")
