@@ -4,6 +4,7 @@ import requests
 import json
 import base64
 import time
+import io
 import streamlit as st
 import pandas as pd
 
@@ -89,17 +90,12 @@ if role == "Siswa":
         st.warning("Data siswa masih kosong atau belum terbaca dari Google Sheets.")
     else:
         df_siswa["Kelas"] = df_siswa["Kelas"].astype(str).str.strip()
-        
-        # Filter pilihan kelas per tingkat
         list_kelas = sorted([k for k in df_siswa["Kelas"].unique() if k != "" and k.lower() != "nan" and k.lower() != "class"])
         
         if not list_kelas:
             st.warning("Belum ada data kelas terdaftar.")
         else:
-            # Dropdown Pemilihan Tingkat Terlebih Dahulu agar terfilter rapi per tingkat kelas
             pilihan_tingkat = st.selectbox("Pilih Tingkat Kelas:", ["Kelas X", "Kelas XI", "Kelas XII"], key="siswa_pilih_tingkat")
-            
-            # Saring kelas berdasarkan tingkat yang dipilih
             kelas_filtered = [k for k in list_kelas if dapatkan_tingkat_kelas(k) == pilihan_tingkat]
             
             if not kelas_filtered:
@@ -115,7 +111,6 @@ if role == "Siswa":
                     siswa_terpilih = st.selectbox("Pilih Nama Anda:", list_siswa, key="siswa_pilih_nama")
                     nis_siswa = str(df_siswa_kelas[df_siswa_kelas["Nama Siswa"] == siswa_terpilih]["NIS"].values[0])
 
-                    # Filter Tugas Khusus Berdasarkan Tingkat Kelas yang Dipilih
                     tugas_tingkat = []
                     if not df_tugas.empty and "Nama Tugas" in df_tugas.columns:
                         df_tugas["Tingkat"] = df_tugas["Tingkat"].astype(str).str.strip()
@@ -288,12 +283,44 @@ elif role == "Guru":
                 st.download_button("📥 Unduh CSV", data=csv_data, file_name="Rekap_Nilai.csv", mime="text/csv")
 
         elif menu_guru == "⚙️ Kelola Tugas Per Tingkat":
-            st.header("⚙️ Kelola Tugas Per Tingkat (Tambah, Edit, Hapus)")
+            st.header("⚙️ Kelola Tugas Per Tingkat (Satuan & Massal via Excel)")
             
+            # FITUR TEMPLATE & UPLOAD EXCEL TUGAS
+            col_t1, col_t2 = st.columns(2)
+            with col_t1:
+                df_tmpl_tugas = pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
+                df_tmpl_tugas.loc[0] = ["Contoh Tugas 1", "Kelas X"]
+                output_tugas = io.BytesIO()
+                with pd.ExcelWriter(output_tugas, engine='xlsxwriter') as writer:
+                    df_tmpl_tugas.to_excel(writer, index=False, sheet_name='Template Tugas')
+                st.download_button("📥 Download Template Excel Tugas", data=output_tugas.getvalue(), file_name="Template_Tugas.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            with col_t2:
+                uploaded_file_tugas = st.file_uploader("📂 Upload Excel Tugas (Banyak Sekaligus)", type=["xlsx", "xls"], key="up_tugas")
+                if uploaded_file_tugas is not None:
+                    try:
+                        df_up_tugas = pd.read_excel(uploaded_file_tugas)
+                        if "Nama Tugas" in df_up_tugas.columns and "Tingkat" in df_up_tugas.columns:
+                            count_sukses = 0
+                            for _, r in df_up_tugas.iterrows():
+                                nt = str(r["Nama Tugas"]).strip()
+                                tt = str(r["Tingkat"]).strip()
+                                if nt and nt.lower() != "nan":
+                                    if kirim_data_ke_sheet("simpan_tugas", [nt, tt]):
+                                        count_sukses += 1
+                            st.success(f"Berhasil mengimpor {count_sukses} data tugas!")
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error("Format kolom Excel salah! Pastikan ada kolom 'Nama Tugas' dan 'Tingkat'.")
+                    except Exception as e:
+                        st.error(f"Gagal membaca file: {e}")
+
+            st.markdown("---")
             with st.form("form_buat_tugas_tingkat"):
                 target_tingkat = st.selectbox("Target Tingkat:", ["Kelas X", "Kelas XI", "Kelas XII"])
                 nama_tugas_baru = st.text_input("Nama Tugas Baru:")
-                if st.form_submit_button("Buat Tugas"):
+                if st.form_submit_button("Buat Tugas Satuan"):
                     if nama_tugas_baru and kirim_data_ke_sheet("simpan_tugas", [nama_tugas_baru, target_tingkat]):
                         st.success("Tugas berhasil disimpan!")
                         time.sleep(1)
@@ -301,8 +328,6 @@ elif role == "Guru":
 
             st.markdown("---")
             st.subheader("Daftar Tugas Berdasarkan Tingkat & Aksi")
-            
-            # Filter Tampilan Tugas Berdasarkan Tingkat di Menu Guru
             filter_tingkat_tugas = st.selectbox("Filter Tampilan Berdasarkan Tingkat:", ["Semua Tingkat", "Kelas X", "Kelas XI", "Kelas XII"])
             
             df_tugas_tampil = df_tugas.copy()
@@ -347,13 +372,46 @@ elif role == "Guru":
                 st.info("Belum ada tugas.")
 
         elif menu_guru == "👤 Kelola Data Siswa":
-            st.header("👤 Kelola Data Siswa (Tambah, Edit, Hapus)")
+            st.header("👤 Kelola Data Siswa (Satuan & Massal via Excel)")
             
+            # FITUR TEMPLATE & UPLOAD EXCEL SISWA
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                df_tmpl_siswa = pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
+                df_tmpl_siswa.loc[0] = ["1001", "Contoh Siswa", "X PPLG 1"]
+                output_siswa = io.BytesIO()
+                with pd.ExcelWriter(output_siswa, engine='xlsxwriter') as writer:
+                    df_tmpl_siswa.to_excel(writer, index=False, sheet_name='Template Siswa')
+                st.download_button("📥 Download Template Excel Siswa", data=output_siswa.getvalue(), file_name="Template_Siswa.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            with col_s2:
+                uploaded_file_siswa = st.file_uploader("📂 Upload Excel Siswa (Banyak Sekaligus)", type=["xlsx", "xls"], key="up_siswa")
+                if uploaded_file_siswa is not None:
+                    try:
+                        df_up_siswa = pd.read_excel(uploaded_file_siswa)
+                        if "NIS" in df_up_siswa.columns and "Nama Siswa" in df_up_siswa.columns and "Kelas" in df_up_siswa.columns:
+                            count_sukses = 0
+                            for _, r in df_up_siswa.iterrows():
+                                v_nis = str(r["NIS"]).strip()
+                                v_nama = str(r["Nama Siswa"]).strip()
+                                v_kelas = str(r["Kelas"]).strip()
+                                if v_nis and v_nis.lower() != "nan":
+                                    if kirim_data_ke_sheet("simpan_siswa", [v_nis, v_nama, v_kelas]):
+                                        count_sukses += 1
+                            st.success(f"Berhasil mengimpor {count_sukses} data siswa!")
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error("Format kolom Excel salah! Pastikan ada kolom 'NIS', 'Nama Siswa', dan 'Kelas'.")
+                    except Exception as e:
+                        st.error(f"Gagal membaca file: {e}")
+
+            st.markdown("---")
             with st.form("form_tambah_manual_siswa"):
                 m_nis = st.text_input("NIS:")
                 m_nama = st.text_input("Nama Lengkap:")
                 m_kelas = st.text_input("Kelas:")
-                if st.form_submit_button("Tambah Siswa"):
+                if st.form_submit_button("Tambah Siswa Satuan"):
                     if m_nis and m_nama and m_kelas and kirim_data_ke_sheet("simpan_siswa", [m_nis.strip(), m_nama.strip(), m_kelas.strip()]):
                         st.success("Siswa tersimpan!")
                         time.sleep(1)
@@ -361,8 +419,6 @@ elif role == "Guru":
 
             st.markdown("---")
             st.subheader("Daftar Siswa Berdasarkan Tingkat & Aksi")
-            
-            # Filter Tampilan Siswa Berdasarkan Tingkat di Menu Guru
             filter_tingkat_siswa = st.selectbox("Filter Tampilan Berdasarkan Tingkat Kelas:", ["Semua Tingkat", "Kelas X", "Kelas XI", "Kelas XII"], key="filter_tingkat_siswa_guru")
             
             df_siswa_tampil = df_siswa.copy()
