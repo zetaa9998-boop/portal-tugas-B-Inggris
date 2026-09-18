@@ -24,16 +24,24 @@ def muat_semua_data_gas():
         if resp.status_code == 200:
             data_json = resp.json()
             
+            # Parsing Siswa dengan Pengaman
             raw_siswa = data_json.get("siswa", [])
-            df_siswa = pd.DataFrame(raw_siswa[1:], columns=raw_siswa[0]).astype(str) if len(raw_siswa) > 1 else pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
+            if len(raw_siswa) > 1:
+                df_siswa = pd.DataFrame(raw_siswa[1:], columns=raw_siswa[0]).astype(str)
+            else:
+                df_siswa = pd.DataFrame(columns=["NIS", "Nama Siswa", "Kelas"])
                 
+            # Parsing Tugas dengan Pengaman
             raw_tugas = data_json.get("tugas", [])
-            df_tugas = pd.DataFrame(raw_tugas[1:], columns=raw_tugas[0]).astype(str) if len(raw_tugas) > 1 else pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
+            if len(raw_tugas) > 1:
+                df_tugas = pd.DataFrame(raw_tugas[1:], columns=raw_tugas[0]).astype(str)
+            else:
+                df_tugas = pd.DataFrame(columns=["Nama Tugas", "Tingkat"])
                 
+            # Parsing Pengumpulan dengan Pengaman
             raw_pengumpulan = data_json.get("pengumpulan", [])
             if len(raw_pengumpulan) > 1:
-                cols = raw_pengumpulan[0]
-                df_p = pd.DataFrame(raw_pengumpulan[1:], columns=cols).astype(str)
+                df_p = pd.DataFrame(raw_pengumpulan[1:], columns=raw_pengumpulan[0]).astype(str)
                 if "Link File" not in df_p.columns:
                     df_p["Link File"] = ""
             else:
@@ -54,13 +62,13 @@ def kirim_data_ke_sheet(action, payload):
             if res_json.get("result") == "success":
                 return res_json.get("file_url", "sukses")
             else:
-                st.error(f"Pesan Error dari Server: {res_json.get('message', 'Kesalahan tidak diketahui')}")
+                st.error(f"Server Error: {res_json.get('message', 'Kesalahan tidak diketahui')}")
                 return False
         else:
             st.error(f"Gagal terhubung! Status Code: {response.status_code}")
             return False
     except Exception as e:
-        st.error(f"Gagal mengirim data (Timeout/File terlalu besar): {e}")
+        st.error(f"Gagal mengirim data: {e}")
         return False
 
 df_siswa, df_tugas, df_pengumpulan = muat_semua_data_gas()
@@ -86,18 +94,16 @@ if role == "Siswa":
     st.title("👨‍🎓 Portal Siswa - Pengumpulan Tugas & Video")
     
     if df_siswa.empty or "Nama Siswa" not in df_siswa.columns or len(df_siswa) == 0:
-        st.warning("Data siswa belum tersedia atau kosong di Google Sheets. Pastikan tab bernama 'Siswa' sudah terisi dengan benar.")
+        st.warning("Data siswa masih kosong atau belum terbaca dari Google Sheets. Periksa kembali tab 'Siswa' di Spreadsheet Anda.")
     else:
         df_siswa["Kelas"] = df_siswa["Kelas"].astype(str).str.strip()
         list_kelas = sorted([k for k in df_siswa["Kelas"].unique() if k != "" and k.lower() != "nan" and k.lower() != "class"])
         
         if not list_kelas:
-            st.warning("Belum ada data kelas yang terdaftar.")
+            st.warning("Belum ada data kelas yang terdaftar di kolom 'Kelas'.")
         else:
             kelas_siswa = st.selectbox("Pilih Kelas Anda:", list_kelas, key="siswa_pilih_kelas")
             tingkat_siswa = dapatkan_tingkat_kelas(kelas_siswa)
-
-            st.info(f"Tingkat Kelas Terdeteksi: **{tingkat_siswa}**")
 
             df_siswa_kelas = df_siswa[df_siswa["Kelas"] == str(kelas_siswa)]
             list_siswa = [s for s in df_siswa_kelas["Nama Siswa"].tolist() if str(s).strip() != ""]
@@ -113,7 +119,7 @@ if role == "Siswa":
 
                 st.markdown("---")
                 if not tugas_tingkat:
-                    st.info(f"Belum ada tugas yang diberikan untuk **{tingkat_siswa}**.")
+                    st.info(f"Belum ada tugas untuk **{tingkat_siswa}**.")
                 else:
                     tugas_terpilih = st.selectbox("Pilih Tugas yang Ingin Dikumpulkan:", tugas_tingkat, key="siswa_pilih_tugas")
 
@@ -132,11 +138,11 @@ if role == "Siswa":
                         link_file_lama = ""
 
                     if status_saat_ini.lower() == "sudah mengumpulkan":
-                        st.success("✅ Status Pengumpulan: **Sudah Mengumpulkan**")
+                        st.success("✅ Status: **Sudah Mengumpulkan**")
                         if link_file_lama and link_file_lama.strip() != "" and link_file_lama.startswith("http"):
                             st.markdown(f"🔗 **[Buka Berkas/Video yang Telah Diunggah]({link_file_lama})**")
                     else:
-                        st.warning("⏳ Status Pengumpulan: **Belum Mengumpulkan**")
+                        st.warning("⏳ Status: **Belum Mengumpulkan**")
 
                     with st.form("form_upload_siswa"):
                         file_tugas = st.file_uploader(
@@ -159,16 +165,14 @@ if role == "Siswa":
                                     "file_name": file_tugas.name,
                                     "file_mime": file_tugas.type
                                 }
-                                with st.spinner("Mengunggah berkas/video ke Google Drive & memperbarui status..."):
+                                with st.spinner("Mengunggah berkas ke Drive..."):
                                     hasil = kirim_data_ke_sheet("simpan_pengumpulan", payload)
                                     if hasil:
-                                        st.success(f"Berkas **'{file_tugas.name}'** berhasil dikirim & disimpan!")
+                                        st.success("Berkas berhasil dikirim & disimpan!")
                                         time.sleep(1.5)
                                         st.rerun()
-                                    else:
-                                        st.error("Gagal mengunggah file. Periksa koneksi atau kapasitas Google Drive.")
                             else:
-                                st.error("Silakan pilih berkas atau video terlebih dahulu.")
+                                st.error("Pilih berkas terlebih dahulu.")
 
 elif role == "Guru":
     st.title("👨‍🏫 Portal Guru - Pengelolaan & Penilaian")
@@ -181,7 +185,7 @@ elif role == "Guru":
             st.info("🔒 Silakan masukkan kata sandi Guru.")
     else:
         st.success("🔓 Akses Diterima.")
-        menu_guru = st.sidebar.radio("Pilih Menu Guru:", [
+        menu_guru = st.sidebar.radio("Pilih Menu:", [
             "📊 Rekapitulasi & Penilaian", 
             "📈 Rekap Global & Rata-Rata Nilai",
             "⚙️ Kelola Tugas Per Tingkat", 
@@ -198,7 +202,7 @@ elif role == "Guru":
                 tugas_tersedia = [t for t in df_tugas[df_tugas["Tingkat"] == tingkat_pilihan]["Nama Tugas"].tolist() if str(t).strip() != ""]
 
             if not tugas_tersedia:
-                st.warning(f"Belum ada tugas yang dibuat untuk **{tingkat_pilihan}**.")
+                st.warning(f"Belum ada tugas untuk **{tingkat_pilihan}**.")
             else:
                 col_tugas, col_kelas_col = st.columns(2)
                 with col_tugas:
@@ -206,7 +210,7 @@ elif role == "Guru":
                 with col_kelas_col:
                     semua_kelas = [k for k in df_siswa["Kelas"].unique() if str(k).strip() != ""] if not df_siswa.empty else []
                     kelas_in_tingkat = [k for k in semua_kelas if dapatkan_tingkat_kelas(k) == tingkat_pilihan]
-                    filter_kelas = st.selectbox("Filter Rombel/Kelas:", ["Semua Rombel"] + sorted(kelas_in_tingkat), key="guru_filter_rombel_rekap")
+                    filter_kelas = st.selectbox("Filter Rombel:", ["Semua Rombel"] + sorted(kelas_in_tingkat), key="guru_filter_rombel_rekap")
 
                 df_siswa_tingkat = df_siswa.copy()
                 if not df_siswa_tingkat.empty and "Kelas" in df_siswa_tingkat.columns:
@@ -236,9 +240,7 @@ elif role == "Guru":
                     st.dataframe(
                         df_rekap[["NIS", "Nama Siswa", "Kelas", "Status", "Nilai", "Link File"]],
                         use_container_width=True,
-                        column_config={
-                            "Link File": st.column_config.LinkColumn("Berkas / Video Tugas (Klik untuk Buka/Unduh)")
-                        }
+                        column_config={"Link File": st.column_config.LinkColumn("Berkas Tugas")}
                     )
 
                     st.markdown("---")
@@ -251,18 +253,18 @@ elif role == "Guru":
                         status_saat_ini = df_rekap[df_rekap["Nama Siswa"] == siswa_pilihan]["Status"].values[0]
 
                         with st.form("form_input_nilai"):
-                            skor = st.number_input(f"Berikan Nilai untuk {siswa_pilihan}:", min_value=0.0, max_value=100.0, value=float(nilai_saat_ini) if str(nilai_saat_ini).replace('.', '', 1).isdigit() else 0.0)
+                            skor = st.number_input("Berikan Nilai:", min_value=0.0, max_value=100.0, value=float(nilai_saat_ini) if str(nilai_saat_ini).replace('.', '', 1).isdigit() else 0.0)
                             if st.form_submit_button("Simpan Nilai"):
                                 payload = {"nis": nis_pilihan, "tugas": tugas_pilihan, "status": status_saat_ini, "nilai": skor}
                                 if kirim_data_ke_sheet("simpan_pengumpulan", payload):
-                                    st.success(f"Nilai {skor} disimpan!")
+                                    st.success("Nilai tersimpan!")
                                     time.sleep(1)
                                     st.rerun()
 
         elif menu_guru == "📈 Rekap Global & Rata-Rata Nilai":
-            st.header("📈 Rekapitulasi Nilai Keseluruhan & Kolom Rata-Rata")
+            st.header("📈 Rekap Global & Rata-Rata")
             if df_siswa.empty:
-                st.warning("Belum ada data siswa.")
+                st.warning("Belum ada data.")
             else:
                 list_semua_tugas = [t for t in df_tugas["Nama Tugas"].unique() if str(t).strip() != ""] if not df_tugas.empty and "Nama Tugas" in df_tugas.columns else []
                 if not df_pengumpulan.empty and "Nama Tugas" in df_pengumpulan.columns and "Nilai" in df_pengumpulan.columns:
@@ -279,7 +281,7 @@ elif role == "Guru":
 
                 st.dataframe(df_rekap_global, use_container_width=True)
                 csv_data = df_rekap_global.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Unduh Rekap Nilai & Rata-Rata (.csv)", data=csv_data, file_name="Rekap_Nilai.csv", mime="text/csv")
+                st.download_button("📥 Unduh CSV", data=csv_data, file_name="Rekap_Nilai.csv", mime="text/csv")
 
         elif menu_guru == "⚙️ Kelola Tugas Per Tingkat":
             st.header("⚙️ Kelola Tugas Per Tingkat")
